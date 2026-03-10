@@ -1,11 +1,13 @@
 import { Stage, Layer, Image as KonvaImage, Group, Line as KonvaLine, Rect as KonvaRect, Circle as KonvaCircle } from 'react-konva';
 import type { LoadedImage } from '../utils/imageLoader';
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { RefreshCw, Loader2, Plus, Minus, Info, Download } from 'lucide-react';
+import { RefreshCw, Loader2, Plus, Minus, Info, Download, Map } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { CropPreview } from './CropPreview';
 import { PhotoMetaPanel } from './PhotoMetaPanel';
+import { LocationSettings } from './LocationSettings';
 import { exportPhoto } from '../utils/exportUtils';
+import { type Location } from '../utils/locationStorage';
 
 interface Selection {
   id: string;
@@ -14,6 +16,7 @@ interface Selection {
   metadata?: {
     date?: string;
     city?: string;
+    location?: Location;
     orientation: 0 | 90 | 180 | 270;
   };
 }
@@ -33,6 +36,8 @@ export function Workspace({ image }: WorkspaceProps) {
   const [isDrawing, setIsDrawing] = useState(false);
   const [newRectStart, setNewRectStart] = useState<{ x: number, y: number } | null>(null);
   const [newRectEnd, setNewRectEnd] = useState<{ x: number, y: number } | null>(null);
+  
+  const [showLocations, setShowLocations] = useState(false);
 
   const workerRef = useRef<Worker | null>(null);
 
@@ -198,8 +203,6 @@ export function Workspace({ image }: WorkspaceProps) {
     return null;
   }
 
-  const fileSizeMB = (image.fileSize / (1024 * 1024)).toFixed(2);
-
   const handleMouseDown = (e: any) => {
     // If panning (Space pressed), don't start drawing
     if (isSpacePressed) return;
@@ -294,6 +297,7 @@ export function Workspace({ image }: WorkspaceProps) {
       await exportPhoto(image, selection.points, {
         date: selection.metadata?.date,
         city: selection.metadata?.city,
+        location: selection.metadata?.location,
         orientation: selection.metadata?.orientation || 0
       });
     } catch (err) {
@@ -327,14 +331,18 @@ export function Workspace({ image }: WorkspaceProps) {
       <div className="flex items-center justify-between px-4 py-2 bg-neutral-900 border-b border-neutral-800 text-sm text-neutral-300 shrink-0">
         <div className="font-semibold truncate max-w-md" title={image.fileName}>{image.fileName}</div>
         
-        <div className="flex items-center gap-6">
-          <div className="flex gap-4 opacity-75 hidden sm:flex">
-            <span>{image.width} × {image.height} px</span>
-            <span>{fileSizeMB} MB</span>
-            <span>{(stageScale * 100).toFixed(0)}%</span>
-            <span>{rects.length} selections</span>
-          </div>
-          
+        <div className="flex items-center gap-4">
+          <button 
+            onClick={() => setShowLocations(true)}
+            className="flex items-center gap-2 px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-md transition-colors font-medium border border-neutral-700"
+            title="Manage Locations"
+          >
+            <Map size={16} />
+            Locations
+          </button>
+
+          <div className="h-4 w-px bg-neutral-800 mx-2" />
+
           <button 
             onClick={runDetection}
             disabled={detecting}
@@ -468,7 +476,7 @@ export function Workspace({ image }: WorkspaceProps) {
               />
               <div className="flex justify-between items-center text-[10px] font-bold text-neutral-400 px-1 uppercase tracking-tight">
                 <span>{r.metadata?.date || 'NO DATE'}</span>
-                {r.metadata?.city && <span className="truncate max-w-[60px]">{r.metadata.city}</span>}
+                <span className="truncate max-w-[60px]">{r.metadata?.location?.city || r.metadata?.city || 'NO CITY'}</span>
               </div>
             </div>
           ))}
@@ -478,6 +486,8 @@ export function Workspace({ image }: WorkspaceProps) {
           </div>
         </div>
       )}
+
+      {showLocations && <LocationSettings onClose={() => setShowLocations(false)} />}
     </div>
   );
 }

@@ -1,9 +1,11 @@
 import type { LoadedImage } from './imageLoader';
+import { type Location } from './locationStorage';
 import * as piexif from 'piexifjs';
 
 interface ExportMetadata {
   date?: string;
   city?: string;
+  location?: Location;
   orientation: 0 | 90 | 180 | 270;
 }
 
@@ -24,6 +26,15 @@ export async function exportPhoto(
   const maxX = Math.max(points[0], points[2], points[4], points[6]);
   const minY = Math.min(points[1], points[3], points[5], points[7]);
   const maxY = Math.max(points[1], points[3], points[5], points[7]);
+
+  const degToExifRational = (deg: number): [[number, number], [number, number], [number, number]] => {
+    const absolute = Math.abs(deg);
+    const degrees = Math.floor(absolute);
+    const minutesNotTruncated = (absolute - degrees) * 60;
+    const minutes = Math.floor(minutesNotTruncated);
+    const seconds = Math.floor((minutesNotTruncated - minutes) * 60 * 100);
+    return [[degrees, 1], [minutes, 1], [seconds, 100]];
+  };
 
   const sourceWidth = maxX - minX;
   const sourceHeight = maxY - minY;
@@ -98,8 +109,19 @@ export async function exportPhoto(
     }
 
     // City / Description
-    if (metadata.city) {
-      exifObj["0th"][piexif.ImageIFD.ImageDescription] = metadata.city;
+    if (metadata.location?.city || metadata.city) {
+      exifObj["0th"][piexif.ImageIFD.ImageDescription] = metadata.location?.city || metadata.city;
+    }
+
+    // GPS
+    if (metadata.location) {
+      const lat = metadata.location.lat;
+      const lon = metadata.location.lon;
+      
+      exifObj["GPS"][piexif.GPSIFD.GPSLatitudeRef] = lat >= 0 ? "N" : "S";
+      exifObj["GPS"][piexif.GPSIFD.GPSLatitude] = degToExifRational(lat);
+      exifObj["GPS"][piexif.GPSIFD.GPSLongitudeRef] = lon >= 0 ? "E" : "W";
+      exifObj["GPS"][piexif.GPSIFD.GPSLongitude] = degToExifRational(lon);
     }
 
     const exifStr = piexif.dump(exifObj);
