@@ -1,7 +1,7 @@
 import { Stage, Layer, Image as KonvaImage, Group, Line as KonvaLine, Rect as KonvaRect, Circle as KonvaCircle } from 'react-konva';
 import type { LoadedImage } from '../utils/imageLoader';
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { RefreshCw, Loader2, Plus, Minus, Info, Download, Map, ChevronDown, ListRestart, PanelLeft, PanelRight, PanelBottom } from 'lucide-react';
+import { RefreshCw, Loader2, Plus, Minus, Info, Download, Map, ChevronDown, ListRestart, PanelLeft, PanelRight, PanelBottom, Maximize } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { CropPreview } from './CropPreview';
 import { PhotoMetaPanel, type Metadata } from './PhotoMetaPanel';
@@ -185,6 +185,36 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
     });
   };
 
+  const zoomToSelection = useCallback((id: string) => {
+    const selection = rects.find(r => r.id === id);
+    if (!selection || !image || !dimensions.width) return;
+
+    setSelectedId(id);
+
+    const p = selection.points;
+    const minX = Math.min(p[0], p[2], p[4], p[6]);
+    const maxX = Math.max(p[0], p[2], p[4], p[6]);
+    const minY = Math.min(p[1], p[3], p[5], p[7]);
+    const maxY = Math.max(p[1], p[3], p[5], p[7]);
+
+    const selWidth = maxX - minX;
+    const selHeight = maxY - minY;
+
+    const padding = 40; // Reduced padding for tighter focus
+    const availableWidth = dimensions.width - padding * 2;
+    const availableHeight = dimensions.height - padding * 2;
+
+    const scaleX = availableWidth / selWidth;
+    const scaleY = availableHeight / selHeight;
+    const newScale = Math.max(0.05, Math.min(scaleX, scaleY, 10)); // Increased auto-zoom cap to 10x
+
+    setStageScale(newScale);
+    setStagePos({
+      x: (dimensions.width / 2) - (minX + selWidth / 2) * newScale,
+      y: (dimensions.height / 2) - (minY + selHeight / 2) * newScale,
+    });
+  }, [rects, image, dimensions]);
+
   const handleZoom = (factor: number) => {
     const oldScale = stageScale;
     const newScale = oldScale * factor;
@@ -205,10 +235,6 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
       y: centerY - mousePointTo.y * clampedScale,
     });
   };
-
-  if (!image) {
-    return null;
-  }
 
   const handleMouseDown = (e: any) => {
     // If panning (Space pressed), don't start drawing
@@ -559,35 +585,42 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
             </Stage>
           </div>
 
-          {/* Floating Zoom Controls - stay relative to center area */}
-          <div className="absolute bottom-6 right-6 flex flex-col gap-2 z-10">
-            <div className="flex flex-col bg-neutral-900/90 backdrop-blur border border-neutral-700 rounded-lg overflow-hidden shadow-2xl">
+          {/* Floating Zoom Controls */}
+          <div className="absolute bottom-8 right-8 flex flex-col items-end gap-3 z-10">
+            <div className="flex flex-col items-center bg-neutral-900/80 backdrop-blur-xl border border-neutral-700/50 rounded-2xl py-1 px-1 shadow-2xl ring-1 ring-white/10">
               <button 
                 onClick={() => handleZoom(1.5)}
-                className="p-3 hover:bg-neutral-800 text-neutral-300 transition-colors border-none"
+                className="p-2.5 hover:bg-neutral-700/50 text-neutral-300 hover:text-white rounded-xl transition-all active:scale-95 border-none"
                 title="Zoom In"
               >
-                <Plus size={20} />
+                <Plus size={18} />
               </button>
-              <div className="h-px bg-neutral-700 w-full" />
+              
+              <div className="h-px w-4 bg-neutral-700/50 my-1" />
+              
               <button 
                 onClick={() => handleZoom(1/1.5)}
-                className="p-3 hover:bg-neutral-800 text-neutral-300 transition-colors border-none"
+                className="p-2.5 hover:bg-neutral-700/50 text-neutral-300 hover:text-white rounded-xl transition-all active:scale-95 border-none"
                 title="Zoom Out"
               >
-                <Minus size={20} />
+                <Minus size={18} />
               </button>
-              <div className="h-px bg-neutral-700 w-full" />
+              
+              <div className="h-px w-4 bg-neutral-700/50 my-1" />
+              
               <button 
                 onClick={resetZoom}
-                className="p-3 hover:bg-neutral-800 text-neutral-300 transition-colors border-none text-xs font-bold"
+                className="flex flex-col items-center gap-1 px-2 py-2.5 hover:bg-neutral-700/50 text-neutral-300 hover:text-white rounded-xl transition-all active:scale-95 border-none text-[10px] font-bold tracking-tight uppercase"
                 title="Fit to Screen"
               >
-                FIT
+                <Maximize size={14} />
+                <span>Fit</span>
               </button>
             </div>
-            <div className="bg-neutral-900/90 backdrop-blur border border-neutral-700 rounded-lg px-2 py-1 text-[10px] text-neutral-500 text-center font-mono">
-             SPACE TO PAN
+            
+            <div className="bg-neutral-900/60 backdrop-blur-md border border-neutral-700/30 rounded-full px-3 py-1 text-[9px] text-neutral-400 font-bold tracking-widest uppercase flex items-center gap-2 shadow-lg">
+              <div className="w-1.5 h-1.5 rounded-full bg-neutral-600 animate-pulse" />
+              Space to Pan
             </div>
           </div>
         </div>
@@ -631,7 +664,7 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
             {rects.map((r) => (
               <div 
                 key={r.id}
-                onClick={() => setSelectedId(r.id)}
+                onClick={() => zoomToSelection(r.id)}
                 className={`flex flex-col gap-1 cursor-pointer transition-all ${selectedId === r.id ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-neutral-900 rounded scale-105' : 'opacity-80 hover:opacity-100 hover:scale-[1.02]'}`}
               >
                 <CropPreview 
@@ -657,7 +690,6 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
     </div>
   );
 }
-
 
 interface SelectionItemProps {
   selection: Selection;
@@ -761,7 +793,7 @@ function SelectionItem({ selection, imageWidth, imageHeight, isSelected, onSelec
         points={points}
         closed={true}
         stroke={isSelected ? "#60a5fa" : (isHovered ? "#3b82f6" : "#3b82f6")}
-        strokeWidth={(isSelected ? 6 : 4) / finalScale}
+        strokeWidth={(isSelected ? 3 : 2) / (finalScale * Math.pow(Math.max(1, finalScale), 1.6))}
         fill={isSelected ? "rgba(59, 130, 246, 0.2)" : (isHovered ? "rgba(59, 130, 246, 0.15)" : "rgba(59, 130, 246, 0.1)")}
         tension={0}
       />
@@ -833,4 +865,3 @@ function SelectionItem({ selection, imageWidth, imageHeight, isSelected, onSelec
     </Group>
   );
 }
-
