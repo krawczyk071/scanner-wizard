@@ -1,7 +1,7 @@
 import { Stage, Layer, Image as KonvaImage, Group, Line as KonvaLine, Rect as KonvaRect, Circle as KonvaCircle } from 'react-konva';
 import type { LoadedImage } from '../utils/imageLoader';
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { RefreshCw, Loader2, Plus, Minus, Info, Download, Map, ChevronDown, ListRestart, PanelLeft, PanelRight, PanelBottom, Maximize } from 'lucide-react';
+import { RefreshCw, Loader2, Plus, Minus, Info, Download, Map, ChevronDown, ListRestart, PanelLeft, PanelRight, PanelBottom, Maximize, ArrowRight } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { CropPreview } from './CropPreview';
 import { PhotoMetaPanel, type Metadata } from './PhotoMetaPanel';
@@ -57,18 +57,20 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
   const workerRef = useRef<Worker | null>(null);
 
   useEffect(() => {
-    const updateSize = () => {
-      if (containerRef.current) {
+    if (!containerRef.current) return;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
         setDimensions({
-          width: containerRef.current.clientWidth,
-          height: containerRef.current.clientHeight,
+          width: entry.contentRect.width,
+          height: entry.contentRect.height,
         });
       }
-    };
-    
-    updateSize();
-    window.addEventListener('resize', updateSize);
-    return () => window.removeEventListener('resize', updateSize);
+    });
+
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
   }, []);
 
   const runDetection = () => {
@@ -129,9 +131,6 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
     };
   }, [image]);
 
-  if (!image) {
-    return null;
-  }
 
   const [stageScale, setStageScale] = useState(1);
   const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
@@ -169,7 +168,7 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
   // Initial fit
   useEffect(() => {
     resetZoom();
-  }, [image, dimensions.width]); // Reset on image change or container resize
+  }, [image, dimensions.width, dimensions.height]); // Reset on image change or container resize
 
   const handleWheel = (e: any) => {
     e.evt.preventDefault();
@@ -403,7 +402,7 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
   const selectedSelection = useMemo(() => rects.find(r => r.id === selectedId), [rects, selectedId]);
 
   return (
-    <div className="flex flex-col w-full h-full bg-neutral-950 text-white overflow-hidden">
+    <div className="flex flex-col w-full h-screen bg-neutral-950 text-white overflow-hidden">
       {/* Top Header */}
       <div className="flex items-center justify-between px-4 py-2 bg-neutral-900 border-b border-neutral-800 text-sm text-neutral-300 shrink-0">
         <div className="flex items-center gap-3">
@@ -444,22 +443,22 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
           
           <div className="flex items-center gap-1">
             <button 
-              onClick={() => setLeftPanelOpen(!leftPanelOpen)}
-              className={`p-1.5 rounded-md transition-colors ${leftPanelOpen ? 'bg-neutral-800 text-blue-400' : 'text-neutral-500 hover:bg-neutral-800'}`}
+              onClick={() => setLeftPanelOpen(prev => !prev)}
+              className={`p-1.5 rounded-md transition-all active:scale-95 ${leftPanelOpen ? 'bg-neutral-800 text-blue-400 shadow-inner' : 'text-neutral-500 hover:bg-neutral-800'}`}
               title="Toggle Queue"
             >
               <PanelLeft size={18} />
             </button>
             <button 
-              onClick={() => setBottomPanelOpen(!bottomPanelOpen)}
-              className={`p-1.5 rounded-md transition-colors ${bottomPanelOpen ? 'bg-neutral-800 text-blue-400' : 'text-neutral-500 hover:bg-neutral-800'}`}
+              onClick={() => setBottomPanelOpen(prev => !prev)}
+              className={`p-1.5 rounded-md transition-all active:scale-95 ${bottomPanelOpen ? 'bg-neutral-800 text-blue-400 shadow-inner' : 'text-neutral-500 hover:bg-neutral-800'}`}
               title="Toggle Previews"
             >
               <PanelBottom size={18} />
             </button>
             <button 
-              onClick={() => setRightPanelOpen(!rightPanelOpen)}
-              className={`p-1.5 rounded-md transition-colors ${rightPanelOpen ? 'bg-neutral-800 text-blue-400' : 'text-neutral-500 hover:bg-neutral-800'}`}
+              onClick={() => setRightPanelOpen(prev => !prev)}
+              className={`p-1.5 rounded-md transition-all active:scale-95 ${rightPanelOpen ? 'bg-neutral-800 text-blue-400 shadow-inner' : 'text-neutral-500 hover:bg-neutral-800'}`}
               title="Toggle Metadata"
             >
               <PanelRight size={18} />
@@ -474,13 +473,13 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
             title={queue.length > 0 ? `Next: ${queue[0].name}` : 'Finish Session'}
           >
             <span className="hidden sm:inline">{queue.length > 0 ? 'Next Image' : 'Finish'}</span>
-            <PanelLeft size={16} className="rotate-180" />
+            <ArrowRight size={16} />
           </button>
         </div>
       </div>
       
       {/* Main Workspace Area */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Left Side Panel: Queue */}
         {leftPanelOpen && (
           <div className="w-64 bg-neutral-900 border-r border-neutral-800 flex flex-col shrink-0">
@@ -724,7 +723,13 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
         <div className="h-48 w-full bg-neutral-900 border-t border-neutral-800 flex flex-col shrink-0">
           <div className="px-3 py-1.5 border-b border-neutral-800 flex items-center justify-between bg-neutral-900/50">
             <span className="text-[10px] font-bold uppercase tracking-widest text-neutral-500">Selection Previews ({rects.length})</span>
-            <ChevronDown size={14} className="text-neutral-600" />
+            <button 
+              onClick={() => setBottomPanelOpen(false)}
+              className="p-1 hover:bg-neutral-800 rounded-md text-neutral-500 hover:text-neutral-300 transition-colors border-none"
+              title="Hide Previews"
+            >
+              <ChevronDown size={14} />
+            </button>
           </div>
           <div className="flex-1 flex items-center px-4 gap-4 overflow-x-auto py-3 custom-scrollbar">
             {rects.map((r) => (
