@@ -99,7 +99,7 @@ export async function exportPhoto(
 
   // Handle EXIF for JPEG
   try {
-    const exifObj: any = { "0th": {}, "Exif": {}, "GPS": {} };
+    const exifObj: Record<string, any> = { "0th": {}, "Exif": {}, "GPS": {} };
 
     // Orientation 1 is Horizontal (normal)
     exifObj["0th"][piexif.ImageIFD.Orientation] = 1;
@@ -116,7 +116,15 @@ export async function exportPhoto(
 
     // City / Description
     if (metadata.location?.city || metadata.city) {
-      exifObj["0th"][piexif.ImageIFD.ImageDescription] = metadata.location?.city || metadata.city;
+      const description = metadata.location?.city || metadata.city || '';
+      // piexifjs needs binary strings for some fields. 
+      // For ImageDescription, it's safer to use ASCII or properly encoded UTF-8 as bytes.
+      try {
+        exifObj["0th"][piexif.ImageIFD.ImageDescription] = unescape(encodeURIComponent(description));
+      } catch {
+        // Fallback: strip non-ASCII characters if encoding fails
+        exifObj["0th"][piexif.ImageIFD.ImageDescription] = description.replace(/[^\x20-\x7E]/g, "?");
+      }
     }
 
     // GPS
