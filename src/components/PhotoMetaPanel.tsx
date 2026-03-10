@@ -3,7 +3,7 @@ import { ArrowUp, ArrowRight, ArrowDown, ArrowLeft, X, Download, MapPin, Chevron
 import { type Location, getSavedLocations } from '../utils/locationStorage';
 import { deleteLocation as _unused_delete } from '../utils/locationStorage'; // Just to avoid confusion with local state
 
-interface Metadata {
+export interface Metadata {
   date?: string;
   city?: string;
   location?: Location;
@@ -13,11 +13,13 @@ interface Metadata {
 interface PhotoMetaPanelProps {
   metadata: Metadata;
   onChange: (metadata: Metadata) => void;
-  onClose: () => void;
-  onExport: () => void;
+  onClose?: () => void;
+  onExport?: () => void;
+  isGlobal?: boolean;
+  onApply?: () => void;
 }
 
-export function PhotoMetaPanel({ metadata, onChange, onClose, onExport }: PhotoMetaPanelProps) {
+export function PhotoMetaPanel({ metadata, onChange, onClose, onExport, isGlobal, onApply }: PhotoMetaPanelProps) {
   const [dateValue, setDateValue] = useState(metadata.date || '');
   const [dateError, setDateError] = useState<string | null>(null);
   
@@ -25,6 +27,12 @@ export function PhotoMetaPanel({ metadata, onChange, onClose, onExport }: PhotoM
   const [showDropdown, setShowDropdown] = useState(false);
   const [inputValue, setInputValue] = useState(metadata.location?.city || metadata.city || '');
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Sync internal state with props when metadata changes (especially for Reset/Global switch)
+  useEffect(() => {
+    setDateValue(metadata.date || '');
+    setInputValue(metadata.location?.city || metadata.city || '');
+  }, [metadata.date, metadata.city, metadata.location]);
 
   useEffect(() => {
     setLocations(getSavedLocations());
@@ -72,17 +80,23 @@ export function PhotoMetaPanel({ metadata, onChange, onClose, onExport }: PhotoM
   return (
     <div className="flex flex-col gap-4 p-4 bg-neutral-900 border border-neutral-800 rounded-lg shadow-xl w-64">
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-sm font-bold text-neutral-200">METADATA</h3>
-        <button 
-          onClick={onClose}
-          className="p-1 hover:bg-neutral-800 rounded-md text-neutral-500 hover:text-neutral-300 border-none transition-colors"
-        >
-          <X size={16} />
-        </button>
+        <h3 className="text-sm font-bold text-neutral-200 uppercase tracking-widest">
+          {isGlobal ? 'Global Settings' : 'Metadata'}
+        </h3>
+        {onClose && (
+          <button 
+            onClick={onClose}
+            className="p-1 hover:bg-neutral-800 rounded-md text-neutral-500 hover:text-neutral-300 border-none transition-colors"
+          >
+            <X size={16} />
+          </button>
+        )}
       </div>
 
       <div className="flex flex-col gap-1">
-        <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Date (DDMMYY)</label>
+        <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">
+          {isGlobal ? 'Default Date (DDMMYY)' : 'Date (DDMMYY)'}
+        </label>
         <input 
           type="text"
           value={dateValue}
@@ -94,7 +108,9 @@ export function PhotoMetaPanel({ metadata, onChange, onClose, onExport }: PhotoM
       </div>
 
       <div className="flex flex-col gap-1 relative" ref={dropdownRef}>
-        <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Location</label>
+        <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">
+          {isGlobal ? 'Default Location' : 'Location'}
+        </label>
         <div className="relative">
           <input 
             type="text"
@@ -139,7 +155,7 @@ export function PhotoMetaPanel({ metadata, onChange, onClose, onExport }: PhotoM
                     <span className="text-sm text-neutral-200 font-medium truncate">{loc.city}</span>
                   </div>
                   <div className="flex items-center gap-1 pl-5">
-                    <span className="text-[10px] text-neutral-500 uppercase tracking-wider">{loc.subarea}</span>
+                    <span className="text-[10px] text-neutral-500 uppercase tracking-wider">{loc.subarea || ''}</span>
                     {loc.street && <span className="text-[10px] text-neutral-600 truncate">— {loc.street}</span>}
                   </div>
                 </button>
@@ -153,32 +169,44 @@ export function PhotoMetaPanel({ metadata, onChange, onClose, onExport }: PhotoM
         )}
       </div>
 
-      <div className="flex flex-col gap-2">
-        <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Orientation</label>
-        <div className="flex gap-1">
-          {orientations.map((deg, i) => {
-            const Icon = icons[i];
-            return (
-              <button
-                key={deg}
-                onClick={() => onChange({ ...metadata, orientation: deg })}
-                className={`flex-1 flex items-center justify-center p-2 rounded border transition-all ${metadata.orientation === deg ? 'bg-blue-600 border-blue-500 text-white' : 'bg-neutral-950 border-neutral-800 text-neutral-500 hover:border-neutral-700'}`}
-              >
-                <Icon size={18} />
-              </button>
-            );
-          })}
+      {!isGlobal && (
+        <div className="flex flex-col gap-2">
+          <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Orientation</label>
+          <div className="flex gap-1">
+            {orientations.map((deg, i) => {
+              const Icon = icons[i];
+              return (
+                <button
+                  key={deg}
+                  onClick={() => onChange({ ...metadata, orientation: deg })}
+                  className={`flex-1 flex items-center justify-center p-2 rounded border transition-all ${metadata.orientation === deg ? 'bg-blue-600 border-blue-500 text-white' : 'bg-neutral-950 border-neutral-800 text-neutral-500 hover:border-neutral-700'}`}
+                >
+                  <Icon size={18} />
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
-      <button
-        onClick={onExport}
-        disabled={!!dateError}
-        className="mt-2 w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white rounded-md transition-all font-bold text-sm tracking-tight border-none shadow-lg shadow-blue-900/20"
-      >
-        <Download size={16} />
-        EXPORT PHOTO
-      </button>
+      {isGlobal ? (
+        <button
+          onClick={onApply}
+          disabled={!!dateError}
+          className="mt-2 w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white rounded-md transition-all font-bold text-sm tracking-tight border-none shadow-lg shadow-blue-900/20"
+        >
+          APPLY TO ALL EMPTY
+        </button>
+      ) : (
+        <button
+          onClick={onExport}
+          disabled={!!dateError}
+          className="mt-2 w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white rounded-md transition-all font-bold text-sm tracking-tight border-none shadow-lg shadow-blue-900/20"
+        >
+          <Download size={16} />
+          EXPORT PHOTO
+        </button>
+      )}
     </div>
   );
 }

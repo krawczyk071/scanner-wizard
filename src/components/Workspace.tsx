@@ -1,10 +1,10 @@
 import { Stage, Layer, Image as KonvaImage, Group, Line as KonvaLine, Rect as KonvaRect, Circle as KonvaCircle } from 'react-konva';
 import type { LoadedImage } from '../utils/imageLoader';
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { RefreshCw, Loader2, Plus, Minus, Info, Download, Map, ChevronRight, ChevronDown, ListRestart, PanelLeft, PanelRight, PanelBottom } from 'lucide-react';
+import { RefreshCw, Loader2, Plus, Minus, Info, Download, Map, ChevronDown, ListRestart, PanelLeft, PanelRight, PanelBottom } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { CropPreview } from './CropPreview';
-import { PhotoMetaPanel } from './PhotoMetaPanel';
+import { PhotoMetaPanel, type Metadata } from './PhotoMetaPanel';
 import { LocationSettings } from './LocationSettings';
 import { exportPhoto } from '../utils/exportUtils';
 import { type Location } from '../utils/locationStorage';
@@ -22,10 +22,12 @@ interface Selection {
 }
 
 interface WorkspaceProps {
-  image: LoadedImage | null;
+  image: LoadedImage;
+  queue: File[];
+  onNext: () => void;
 }
 
-export function Workspace({ image }: WorkspaceProps) {
+export function Workspace({ image, queue, onNext }: WorkspaceProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [rects, setRects] = useState<Selection[]>([]);
@@ -41,6 +43,8 @@ export function Workspace({ image }: WorkspaceProps) {
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [bottomPanelOpen, setBottomPanelOpen] = useState(true);
+
+  const [globalMetadata, setGlobalMetadata] = useState<Metadata>({ orientation: 0 });
 
   const workerRef = useRef<Worker | null>(null);
 
@@ -268,7 +272,10 @@ export function Workspace({ image }: WorkspaceProps) {
         points: [minX, minY, maxX, minY, maxX, maxY, minX, maxY],
         isManual: true,
         metadata: {
-          orientation: 0
+          orientation: 0,
+          date: globalMetadata.date,
+          city: globalMetadata.city,
+          location: globalMetadata.location
         }
       };
       
@@ -298,9 +305,9 @@ export function Workspace({ image }: WorkspaceProps) {
     if (!image) return;
     try {
       await exportPhoto(image, selection.points, {
-        date: selection.metadata?.date,
-        city: selection.metadata?.city,
-        location: selection.metadata?.location,
+        date: selection.metadata?.date || globalMetadata.date,
+        city: selection.metadata?.city || globalMetadata.city,
+        location: selection.metadata?.location || globalMetadata.location,
         orientation: selection.metadata?.orientation || 0
       });
     } catch (err) {
@@ -309,8 +316,10 @@ export function Workspace({ image }: WorkspaceProps) {
     }
   };
 
+  const [exportingAll, setExportingAll] = useState(false);
+
   const handleExportAll = async () => {
-    if (!image || rects.length === 0) return;
+    if (!image || rects.length === 0 || exportingAll) return;
     
     // Validate dates
     const invalidCount = rects.filter(r => !r.metadata?.date || !/^\d{6}$/.test(r.metadata.date)).length;
@@ -320,11 +329,41 @@ export function Workspace({ image }: WorkspaceProps) {
       }
     }
 
-    for (const r of rects) {
-      await handleExport(r);
-      // Small delay between downloads to prevent browser blocking/congestion
-      await new Promise(res => setTimeout(res, 500));
+    setExportingAll(true);
+    try {
+      for (const r of rects) {
+        await handleExport(r);
+        // Small delay between downloads to prevent browser blocking/congestion
+        await new Promise(res => setTimeout(res, 500));
+      }
+
+      // Automatically proceed to next image if available
+      if (queue.length > 0) {
+        // Short delay to let the user see that exports finished
+        setTimeout(() => {
+          onNext();
+          setExportingAll(false);
+        }, 1000);
+      } else {
+        setExportingAll(false);
+      }
+    } catch (err) {
+      console.error('Export all failed:', err);
+      setExportingAll(false);
     }
+  };
+
+  const applyGlobalToAll = () => {
+    setRects(prev => prev.map(r => ({
+      ...r,
+      metadata: {
+        ...r.metadata,
+        date: r.metadata?.date || globalMetadata.date,
+        city: r.metadata?.city || globalMetadata.city,
+        location: r.metadata?.location || globalMetadata.location,
+        orientation: r.metadata?.orientation ?? 0
+      } as any
+    })));
   };
 
   const selectedSelection = useMemo(() => rects.find(r => r.id === selectedId), [rects, selectedId]);
@@ -360,11 +399,11 @@ export function Workspace({ image }: WorkspaceProps) {
 
           <button 
             onClick={handleExportAll}
-            disabled={rects.length === 0}
+            disabled={rects.length === 0 || exportingAll}
             className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white rounded-md transition-colors font-bold border-none"
           >
-            <Download size={16} />
-            <span className="hidden sm:inline">Export All</span>
+            {exportingAll ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+            <span className="hidden sm:inline">{exportingAll ? 'Exporting...' : 'Export All'}</span>
           </button>
 
           <div className="h-4 w-px bg-neutral-800 mx-1" />
@@ -392,6 +431,17 @@ export function Workspace({ image }: WorkspaceProps) {
               <PanelRight size={18} />
             </button>
           </div>
+
+          <div className="h-4 w-px bg-neutral-800 mx-1" />
+
+          <button 
+            onClick={onNext}
+            className="flex items-center gap-2 px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 rounded-md transition-colors font-medium"
+            title={queue.length > 0 ? `Next: ${queue[0].name}` : 'Finish Session'}
+          >
+            <span className="hidden sm:inline">{queue.length > 0 ? 'Next Image' : 'Finish'}</span>
+            <PanelLeft size={16} className="rotate-180" />
+          </button>
         </div>
       </div>
       
@@ -404,13 +454,53 @@ export function Workspace({ image }: WorkspaceProps) {
               <span className="text-xs font-bold uppercase tracking-widest text-neutral-500">Processing Queue</span>
               <ListRestart size={14} className="text-neutral-600" />
             </div>
-            <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-neutral-600">
-              <div className="w-12 h-12 rounded-full bg-neutral-800/50 flex items-center justify-center mb-3">
-                <Loader2 size={20} className="opacity-20" />
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
+              <div className="p-3">
+                <div className="flex flex-col gap-2">
+                  {/* Current Image */}
+                  <div className="flex items-center gap-3 p-2 rounded-lg bg-blue-500/10 border border-blue-500/30">
+                    <div className="w-8 h-8 rounded bg-blue-500/20 flex items-center justify-center shrink-0">
+                      <Plus size={16} className="text-blue-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-blue-400 truncate uppercase tracking-tight">Processing</p>
+                      <p className="text-[10px] text-neutral-400 truncate">{image.fileName}</p>
+                    </div>
+                  </div>
+
+                  {/* Remaining Queue */}
+                  {queue.length > 0 ? (
+                    queue.map((file, idx) => (
+                      <div key={idx} className="flex items-center gap-3 p-2 rounded-lg bg-neutral-800/30 border border-neutral-800/50 opacity-60">
+                        <div className="w-8 h-8 rounded bg-neutral-800 flex items-center justify-center shrink-0">
+                          <span className="text-[10px] font-bold text-neutral-600">{idx + 1}</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[10px] text-neutral-300 truncate font-medium">{file.name}</p>
+                          <p className="text-[9px] text-neutral-500">{(file.size / 1024 / 1024).toFixed(1)} MB</p>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="flex flex-col items-center justify-center p-8 text-center text-neutral-600 opacity-30 mt-4">
+                      <ListRestart size={24} className="mb-2" />
+                      <p className="text-[10px] font-bold uppercase">No more items</p>
+                    </div>
+                  )}
+                </div>
               </div>
-              <p className="text-sm font-medium opacity-40">Queue is empty</p>
-              <p className="text-[10px] mt-1 opacity-30">Detected photos will appear here after selection.</p>
             </div>
+
+            {queue.length > 0 && (
+              <div className="p-3 border-t border-neutral-800 bg-neutral-900/50">
+                <button 
+                  onClick={onNext}
+                  className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-md transition-colors text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2"
+                >
+                  Skip to Next
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -518,13 +608,12 @@ export function Workspace({ image }: WorkspaceProps) {
                   onExport={() => handleExport(selectedSelection)}
                 />
               ) : (
-                <div className="h-full flex flex-col items-center justify-center text-center text-neutral-500 py-12">
-                  <div className="w-12 h-12 rounded-full bg-neutral-800/50 flex items-center justify-center mb-3">
-                    <ChevronRight size={20} className="opacity-20" />
-                  </div>
-                  <p className="text-sm font-medium opacity-40">No selection active</p>
-                  <p className="text-[10px] mt-1 opacity-30">Click on a photo region to edit its metadata.</p>
-                </div>
+                <PhotoMetaPanel 
+                  isGlobal
+                  metadata={globalMetadata}
+                  onChange={setGlobalMetadata}
+                  onApply={applyGlobalToAll}
+                />
               )}
             </div>
           </div>

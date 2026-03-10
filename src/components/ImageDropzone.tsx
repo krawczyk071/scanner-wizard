@@ -3,17 +3,17 @@ import { useDropzone } from 'react-dropzone';
 import { ImagePlus } from 'lucide-react';
 
 interface ImageDropzoneProps {
-  onFileAccepted: (file: File) => void;
+  onFilesAccepted: (files: File[]) => void;
 }
 
-export function ImageDropzone({ onFileAccepted }: ImageDropzoneProps) {
+export function ImageDropzone({ onFilesAccepted }: ImageDropzoneProps) {
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
       if (acceptedFiles.length > 0) {
-        onFileAccepted(acceptedFiles[0]);
+        onFilesAccepted(acceptedFiles);
       }
     },
-    [onFileAccepted]
+    [onFilesAccepted]
   );
 
   const { getRootProps, getInputProps, isDragActive, isDragReject } = useDropzone({
@@ -25,7 +25,6 @@ export function ImageDropzone({ onFileAccepted }: ImageDropzoneProps) {
       'image/heic': ['.heic'],
       'image/heif': ['.heif'],
     },
-    maxFiles: 1,
   });
 
   return (

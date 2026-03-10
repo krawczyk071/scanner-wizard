@@ -7,6 +7,7 @@ import { Loader2 } from 'lucide-react'
 function App() {
   const [cvReady, setCvReady] = useState(false)
   const [image, setImage] = useState<LoadedImage | null>(null)
+  const [queue, setQueue] = useState<File[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -23,7 +24,7 @@ function App() {
     checkCv()
   }, [])
 
-  const handleFileAccepted = async (file: File) => {
+  const triggerLoad = async (file: File) => {
     setIsLoading(true);
     setError(null);
     try {
@@ -37,6 +38,27 @@ function App() {
       }
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleFilesAccepted = (files: File[]) => {
+    if (!image && !isLoading) {
+      const [first, ...rest] = files;
+      setQueue(prev => [...prev, ...rest]);
+      triggerLoad(first);
+    } else {
+      setQueue(prev => [...prev, ...files]);
+    }
+  };
+
+  const handleNext = () => {
+    if (queue.length > 0) {
+      const [next, ...rest] = queue;
+      setQueue(rest);
+      triggerLoad(next);
+    } else {
+      setImage(null);
+      setQueue([]);
     }
   };
 
@@ -62,7 +84,7 @@ function App() {
                <p className="text-xl font-medium">Processing scan...</p>
             </div>
           ) : (
-            <ImageDropzone onFileAccepted={handleFileAccepted} />
+            <ImageDropzone onFilesAccepted={handleFilesAccepted} />
           )}
 
           {error && (
@@ -73,7 +95,7 @@ function App() {
         </div>
       )}
       
-      {image && <Workspace image={image} />}
+      {image && <Workspace image={image} queue={queue} onNext={handleNext} />}
     </div>
   )
 }
