@@ -129,21 +129,6 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
   const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
   const [isSpacePressed, setIsSpacePressed] = useState(false);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'Space') setIsSpacePressed(true);
-    };
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.code === 'Space') setIsSpacePressed(false);
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
-  }, []);
-
   const resetZoom = useCallback(() => {
     if (!image || !dimensions.width) return;
     const padding = 40;
@@ -157,6 +142,56 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
       y: (dimensions.height - image.height * initialScale) / 2,
     });
   }, [image, dimensions]);
+
+  const deleteSelection = (id: string) => {
+    setRects(rects.filter(r => r.id !== id));
+    if (selectedId === id) setSelectedId(null);
+  };
+
+  const updateSelection = (id: string, newPoints: number[]) => {
+    setRects(rects.map(r => r.id === id ? { ...r, points: newPoints } : r));
+  };
+
+  const updateMetadata = useCallback((id: string, metadata: Metadata) => {
+    setRects(prev => prev.map(r => r.id === id ? { ...r, metadata } : r));
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space') setIsSpacePressed(true);
+      
+      // Handle arrow keys for orientation if a selection is active
+      if (selectedId && !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
+        const orientationMap: Record<string, 0 | 90 | 180 | 270> = {
+          'ArrowUp': 0,
+          'ArrowRight': 90,
+          'ArrowDown': 180,
+          'ArrowLeft': 270
+        };
+
+        if (e.key in orientationMap) {
+          e.preventDefault();
+          const newOrientation = orientationMap[e.key];
+          const selection = rects.find(r => r.id === selectedId);
+          if (selection) {
+            updateMetadata(selectedId, {
+              ...(selection.metadata || { orientation: 0 }),
+              orientation: newOrientation
+            });
+          }
+        }
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') setIsSpacePressed(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [selectedId, rects, updateMetadata]);
 
   // Initial fit
   useEffect(() => {
@@ -318,19 +353,6 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
     setIsDrawing(false);
     setNewRectStart(null);
     setNewRectEnd(null);
-  };
-
-  const deleteSelection = (id: string) => {
-    setRects(rects.filter(r => r.id !== id));
-    if (selectedId === id) setSelectedId(null);
-  };
-
-  const updateSelection = (id: string, newPoints: number[]) => {
-    setRects(rects.map(r => r.id === id ? { ...r, points: newPoints } : r));
-  };
-
-  const updateMetadata = (id: string, metadata: Metadata) => {
-    setRects(rects.map(r => r.id === id ? { ...r, metadata } : r));
   };
 
   const handleExport = async (selection: Selection) => {
