@@ -138,7 +138,23 @@ function processImageContours(imageData: ImageData) {
   contours.delete();
   hierarchy.delete();
 
-  return finalCandidates.map(c => ({ points: c.points }));
+  return finalCandidates.map(c => {
+    // Simple orientation heuristic: if width > height, assume it's landscape (90 or 270)
+    // For now, let's just use 0 as default but we could improve this.
+    // If we want to be smart: if aspect ratio > 1.2, maybe it's 90?
+    // Let's just default to 0 but show where we'd add it.
+    let orientation: 0 | 90 | 180 | 270 = 0;
+    if (c.rect.size.width > c.rect.size.height) {
+      // Landscape-ish. 
+      // We don't know if it's 90 or 270 without content analysis.
+      // But usually, scans are upright but photos might be rotated.
+    }
+
+    return { 
+      points: c.points,
+      orientation
+    };
+  });
 }
 
 function getPoints(rect: any, scale: number) {

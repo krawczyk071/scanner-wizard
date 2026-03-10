@@ -1,13 +1,20 @@
 import { Stage, Layer, Image as KonvaImage, Group, Line as KonvaLine, Rect as KonvaRect, Circle as KonvaCircle } from 'react-konva';
 import type { LoadedImage } from '../utils/imageLoader';
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { RefreshCw, Loader2, Plus, Minus } from 'lucide-react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { RefreshCw, Loader2, Plus, Minus, Info } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
+import { CropPreview } from './CropPreview';
+import { PhotoMetaPanel } from './PhotoMetaPanel';
 
 interface Selection {
   id: string;
   points: number[]; // 8 points [x1, y1, x2, y2, x3, y3, x4, y4]
   isManual?: boolean;
+  metadata?: {
+    date?: string;
+    city?: string;
+    orientation: 0 | 90 | 180 | 270;
+  };
 }
 
 interface WorkspaceProps {
@@ -70,7 +77,10 @@ export function Workspace({ image }: WorkspaceProps) {
         const autoRects: Selection[] = payload.rects.map((r: any) => ({
           id: uuidv4(),
           points: r.points,
-          isManual: false
+          isManual: false,
+          metadata: {
+            orientation: r.orientation || 0
+          }
         }));
         
         // Preserve manual selections
@@ -249,7 +259,10 @@ export function Workspace({ image }: WorkspaceProps) {
       const newSelection: Selection = {
         id: uuidv4(),
         points: [minX, minY, maxX, minY, maxX, maxY, minX, maxY],
-        isManual: true
+        isManual: true,
+        metadata: {
+          orientation: 0
+        }
       };
       
       setRects([...rects, newSelection]);
@@ -269,6 +282,12 @@ export function Workspace({ image }: WorkspaceProps) {
   const updateSelection = (id: string, newPoints: number[]) => {
     setRects(rects.map(r => r.id === id ? { ...r, points: newPoints } : r));
   };
+
+  const updateMetadata = (id: string, metadata: any) => {
+    setRects(rects.map(r => r.id === id ? { ...r, metadata } : r));
+  };
+
+  const selectedSelection = useMemo(() => rects.find(r => r.id === selectedId), [rects, selectedId]);
 
   return (
     <div className="flex flex-col w-full h-full relative">
@@ -346,8 +365,19 @@ export function Workspace({ image }: WorkspaceProps) {
           </Layer>
         </Stage>
 
+        {/* Metadata Panel */}
+        {selectedSelection && (
+          <div className="absolute top-4 right-4 z-20">
+            <PhotoMetaPanel 
+              metadata={selectedSelection.metadata || { orientation: 0 }}
+              onChange={(m) => updateMetadata(selectedSelection.id, m)}
+              onClose={() => setSelectedId(null)}
+            />
+          </div>
+        )}
+
         {/* Zoom Controls */}
-        <div className="absolute bottom-6 right-6 flex flex-col gap-2">
+        <div className="absolute bottom-6 right-6 flex flex-col gap-2 z-10">
           <div className="flex flex-col bg-neutral-900/90 backdrop-blur border border-neutral-700 rounded-lg overflow-hidden shadow-2xl">
             <button 
               onClick={() => handleZoom(1.5)}
@@ -378,6 +408,33 @@ export function Workspace({ image }: WorkspaceProps) {
           </div>
         </div>
       </div>
+
+      {/* Preview Strip */}
+      {rects.length > 0 && (
+        <div className="h-44 w-full bg-neutral-900 border-t border-neutral-800 flex items-center px-4 gap-4 overflow-x-auto shrink-0">
+          {rects.map((r) => (
+            <div 
+              key={r.id}
+              onClick={() => setSelectedId(r.id)}
+              className={`flex flex-col gap-1 cursor-pointer transition-all ${selectedId === r.id ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-neutral-900 rounded scale-105' : 'opacity-80 hover:opacity-100 hover:scale-[1.02]'}`}
+            >
+              <CropPreview 
+                image={image}
+                points={r.points}
+                orientation={r.metadata?.orientation || 0}
+              />
+              <div className="flex justify-between items-center text-[10px] font-bold text-neutral-400 px-1 uppercase tracking-tight">
+                <span>{r.metadata?.date || 'NO DATE'}</span>
+                {r.metadata?.city && <span className="truncate max-w-[60px]">{r.metadata.city}</span>}
+              </div>
+            </div>
+          ))}
+          <div className="text-neutral-600 flex flex-col items-center justify-center h-[120px] px-8 text-center border-2 border-dashed border-neutral-800 rounded">
+            <Info size={20} className="mb-1 opacity-20" />
+            <span className="text-[10px] uppercase font-bold opacity-30">Selection Previews</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
