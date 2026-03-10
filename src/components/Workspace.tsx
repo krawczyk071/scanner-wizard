@@ -592,14 +592,18 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
                   )}
 
                   {/* Sniper Scope Overlay */}
-                  {activeDragInfo && (
-                    <Group
-                      x={activeDragInfo.x}
-                      y={activeDragInfo.y}
-                      // Offset the scope so it's visible next to the cursor
-                      offsetX={-100 / stageScale}
-                      offsetY={100 / stageScale}
-                    >
+                  {activeDragInfo && (() => {
+                    const screenY = activeDragInfo.y * stageScale + stagePos.y;
+                    const isNearTop = screenY < 160; // 160px from top
+                    const isNearRight = (activeDragInfo.x * stageScale + stagePos.x) > dimensions.width - 160;
+                    
+                    return (
+                      <Group
+                        x={activeDragInfo.x}
+                        y={activeDragInfo.y}
+                        offsetX={isNearRight ? 100 / stageScale : -100 / stageScale}
+                        offsetY={isNearTop ? -100 / stageScale : 100 / stageScale}
+                      >
                       {/* Outer Ring / Glass */}
                       <KonvaCircle
                         radius={60 / stageScale}
@@ -643,8 +647,9 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
                         stroke="#ef4444"
                         strokeWidth={1 / stageScale}
                       />
-                    </Group>
-                  )}
+                      </Group>
+                    );
+                  })()}
                 </Group>
               </Layer>
             </Stage>
