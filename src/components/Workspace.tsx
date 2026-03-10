@@ -46,6 +46,14 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
 
   const [globalMetadata, setGlobalMetadata] = useState<Metadata>({ orientation: 0 });
 
+  // Sniper Scope state
+  const [activeDragInfo, setActiveDragInfo] = useState<{
+    selectionId: string;
+    handleIndex: number;
+    x: number;
+    y: number;
+  } | null>(null);
+
   const workerRef = useRef<Worker | null>(null);
 
   useEffect(() => {
@@ -566,6 +574,9 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
                       onDelete={() => deleteSelection(r.id)}
                       onChange={(newPoints) => updateSelection(r.id, newPoints)}
                       finalScale={stageScale}
+                      onHandleDragStart={(index, x, y) => setActiveDragInfo({ selectionId: r.id, handleIndex: index, x, y })}
+                      onHandleDragMove={(index, x, y) => setActiveDragInfo({ selectionId: r.id, handleIndex: index, x, y })}
+                      onHandleDragEnd={() => setActiveDragInfo(null)}
                     />
                   ))}
 
@@ -579,6 +590,61 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
                       strokeWidth={2 / stageScale}
                       dash={[10 / stageScale, 5 / stageScale]}
                     />
+                  )}
+
+                  {/* Sniper Scope Overlay */}
+                  {activeDragInfo && (
+                    <Group
+                      x={activeDragInfo.x}
+                      y={activeDragInfo.y}
+                      // Offset the scope so it's visible next to the cursor
+                      offsetX={-100 / stageScale}
+                      offsetY={100 / stageScale}
+                    >
+                      {/* Outer Ring / Glass */}
+                      <KonvaCircle
+                        radius={60 / stageScale}
+                        fill="black"
+                        stroke="#3b82f6"
+                        strokeWidth={4 / stageScale}
+                        shadowBlur={10 / stageScale}
+                        shadowOpacity={0.5}
+                      />
+                      
+                      {/* Magnified Image View */}
+                      <Group
+                        clipFunc={(ctx) => {
+                          ctx.arc(0, 0, 58 / stageScale, 0, Math.PI * 2, false);
+                        }}
+                      >
+                        <KonvaImage
+                          image={image.element}
+                          x={0}
+                          y={0}
+                          offsetX={activeDragInfo.x}
+                          offsetY={activeDragInfo.y}
+                          scaleX={4}
+                          scaleY={4}
+                        />
+                      </Group>
+
+                      {/* Crosshair */}
+                      <KonvaLine
+                        points={[-15/stageScale, 0, 15/stageScale, 0]}
+                        stroke="#ef4444"
+                        strokeWidth={1/stageScale}
+                      />
+                      <KonvaLine
+                        points={[0, -15/stageScale, 0, 15/stageScale]}
+                        stroke="#ef4444"
+                        strokeWidth={1/stageScale}
+                      />
+                      <KonvaCircle
+                        radius={2 / stageScale}
+                        stroke="#ef4444"
+                        strokeWidth={1 / stageScale}
+                      />
+                    </Group>
                   )}
                 </Group>
               </Layer>
@@ -700,9 +766,15 @@ interface SelectionItemProps {
   onDelete: () => void;
   onChange: (points: number[]) => void;
   finalScale: number;
+  onHandleDragStart?: (index: number, x: number, y: number) => void;
+  onHandleDragMove?: (index: number, x: number, y: number) => void;
+  onHandleDragEnd?: () => void;
 }
 
-function SelectionItem({ selection, imageWidth, imageHeight, isSelected, onSelect, onDelete, onChange, finalScale }: SelectionItemProps) {
+function SelectionItem({ 
+  selection, imageWidth, imageHeight, isSelected, onSelect, onDelete, onChange, finalScale,
+  onHandleDragStart, onHandleDragMove, onHandleDragEnd
+}: SelectionItemProps) {
   const [isHovered, setIsHovered] = useState(false);
 
   // Derive bounding box for easier handling of axis-aligned rects
@@ -809,12 +881,19 @@ function SelectionItem({ selection, imageWidth, imageHeight, isSelected, onSelec
           strokeWidth={2 / finalScale}
           draggable
           onDragMove={(e) => {
-            handleResize(i, e.target.x(), e.target.y());
+            const cx = e.target.x();
+            const cy = e.target.y();
+            handleResize(i, cx, cy);
+            onHandleDragMove?.(i, cx, cy);
+          }}
+          onDragStart={(e) => {
+            onHandleDragStart?.(i, e.target.x(), e.target.y());
           }}
           onDragEnd={(e) => {
             // Circle onDragEnd also bubbles, but handleResizeEnd handles it
             e.cancelBubble = true;
             handleResizeEnd();
+            onHandleDragEnd?.();
           }}
           onMouseDown={(e) => {
              e.cancelBubble = true; // Don't trigger Group mousedown when clicking handles

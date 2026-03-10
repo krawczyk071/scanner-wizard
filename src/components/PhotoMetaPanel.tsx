@@ -135,11 +135,6 @@ export function PhotoMetaPanel({ metadata, onChange, onClose, onExport, isGlobal
         {showDropdown && (
           <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-neutral-900 border border-neutral-800 rounded shadow-2xl max-h-48 overflow-y-auto">
             {locations
-              .filter(l => 
-                l.city.toLowerCase().includes(inputValue.toLowerCase()) || 
-                l.subarea.toLowerCase().includes(inputValue.toLowerCase()) ||
-                (l.street && l.street.toLowerCase().includes(inputValue.toLowerCase()))
-              )
               .map(loc => (
                 <button
                   key={loc.id}
