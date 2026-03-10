@@ -503,10 +503,6 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
                 <span>Fit</span>
               </button>
             </div>
-            <div className="bg-neutral-900/60 backdrop-blur-md border border-neutral-700/30 rounded-full px-3 py-1 text-[9px] text-neutral-400 font-bold uppercase flex items-center gap-2 shadow-lg">
-              <div className="w-1.5 h-1.5 rounded-full bg-neutral-600 animate-pulse" />
-              Space to Pan
-            </div>
           </div>
         </div>
 

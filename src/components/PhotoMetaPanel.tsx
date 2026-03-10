@@ -147,11 +147,17 @@ export function PhotoMetaPanel({ metadata, onChange, onClose, onExport, isGlobal
                 >
                   <div className="flex items-center gap-2">
                     <MapPin size={12} className="text-blue-500 shrink-0" />
-                    <span className="text-sm text-neutral-200 font-medium truncate">{loc.city}</span>
+                    <span className="text-sm text-neutral-200 font-medium truncate">
+                      {loc.street || loc.city}
+                    </span>
                   </div>
                   <div className="flex items-center gap-1 pl-5">
-                    <span className="text-[10px] text-neutral-500 uppercase tracking-wider">{loc.subarea || ''}</span>
-                    {loc.street && <span className="text-[10px] text-neutral-600 truncate">— {loc.street}</span>}
+                    <span className="text-[10px] text-neutral-500 uppercase tracking-wider">
+                      {loc.street ? loc.city : (loc.subarea || '')}
+                    </span>
+                    {loc.street && loc.subarea && (
+                      <span className="text-[10px] text-neutral-600 truncate">— {loc.subarea}</span>
+                    )}
                   </div>
                 </button>
               ))}
