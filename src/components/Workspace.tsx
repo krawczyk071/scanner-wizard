@@ -1,4 +1,4 @@
-import { Stage, Layer, Image as KonvaImage, Group, Rect as KonvaRect } from 'react-konva';
+import { Stage, Layer, Image as KonvaImage, Group, Line as KonvaLine } from 'react-konva';
 import type { LoadedImage } from '../utils/imageLoader';
 import { useEffect, useRef, useState } from 'react';
 import { RefreshCw, Loader2 } from 'lucide-react';
@@ -118,18 +118,14 @@ export function Workspace({ image }: WorkspaceProps) {
               <KonvaImage image={image.element} />
               
               {rects.map((r, i) => (
-                <KonvaRect
+                <KonvaLine
                   key={i}
-                  x={r.x}
-                  y={r.y}
-                  width={r.width}
-                  height={r.height}
-                  offsetX={r.width / 2}
-                  offsetY={r.height / 2}
-                  rotation={r.angle}
+                  points={r.points}
+                  closed={true}
                   stroke="#3b82f6" // blue-500
                   strokeWidth={4 / finalScale} // keep border fixed width visually
                   fill="rgba(59, 130, 246, 0.1)"
+                  tension={0} // straight lines
                 />
               ))}
             </Group>
