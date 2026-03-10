@@ -50,7 +50,7 @@ function App() {
   }
 
   return (
-    <div className="flex flex-col min-h-screen bg-neutral-950 text-white w-full h-screen overflow-hidden">
+    <div className="flex flex-col w-full h-full bg-neutral-950 text-white overflow-hidden">
       {!image && (
         <div className="flex-1 flex flex-col items-center justify-center p-8">
           <h1 className="text-4xl font-bold text-white mb-2">Scanner Wizard</h1>

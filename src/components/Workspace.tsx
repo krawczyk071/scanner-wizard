@@ -1,7 +1,7 @@
 import { Stage, Layer, Image as KonvaImage, Group, Line as KonvaLine, Rect as KonvaRect, Circle as KonvaCircle } from 'react-konva';
 import type { LoadedImage } from '../utils/imageLoader';
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { RefreshCw, Loader2, Plus, Minus, Info, Download, Map } from 'lucide-react';
+import { RefreshCw, Loader2, Plus, Minus, Info, Download, Map, ChevronRight, ChevronDown, ListRestart, PanelLeft, PanelRight, PanelBottom } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { CropPreview } from './CropPreview';
 import { PhotoMetaPanel } from './PhotoMetaPanel';
@@ -38,6 +38,9 @@ export function Workspace({ image }: WorkspaceProps) {
   const [newRectEnd, setNewRectEnd] = useState<{ x: number, y: number } | null>(null);
   
   const [showLocations, setShowLocations] = useState(false);
+  const [leftPanelOpen, setLeftPanelOpen] = useState(true);
+  const [rightPanelOpen, setRightPanelOpen] = useState(true);
+  const [bottomPanelOpen, setBottomPanelOpen] = useState(true);
 
   const workerRef = useRef<Worker | null>(null);
 
@@ -327,21 +330,24 @@ export function Workspace({ image }: WorkspaceProps) {
   const selectedSelection = useMemo(() => rects.find(r => r.id === selectedId), [rects, selectedId]);
 
   return (
-    <div className="flex flex-col w-full h-full relative">
+    <div className="flex flex-col w-full h-full bg-neutral-950 text-white overflow-hidden">
+      {/* Top Header */}
       <div className="flex items-center justify-between px-4 py-2 bg-neutral-900 border-b border-neutral-800 text-sm text-neutral-300 shrink-0">
-        <div className="font-semibold truncate max-w-md" title={image.fileName}>{image.fileName}</div>
+        <div className="flex items-center gap-3">
+          <div className="font-semibold truncate max-w-md" title={image.fileName}>{image.fileName}</div>
+        </div>
         
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
           <button 
             onClick={() => setShowLocations(true)}
             className="flex items-center gap-2 px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-md transition-colors font-medium border border-neutral-700"
             title="Manage Locations"
           >
             <Map size={16} />
-            Locations
+            <span className="hidden sm:inline">Locations</span>
           </button>
 
-          <div className="h-4 w-px bg-neutral-800 mx-2" />
+          <div className="h-4 w-px bg-neutral-800 mx-1" />
 
           <button 
             onClick={runDetection}
@@ -349,7 +355,7 @@ export function Workspace({ image }: WorkspaceProps) {
             className="flex items-center gap-2 px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 disabled:bg-neutral-800 disabled:text-neutral-600 text-neutral-200 border border-neutral-700 rounded-md transition-colors font-medium"
           >
             {detecting ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-            {detecting ? 'Detecting...' : 'Re-detect'}
+            <span className="hidden sm:inline">{detecting ? 'Detecting...' : 'Re-detect'}</span>
           </button>
 
           <button 
@@ -358,131 +364,202 @@ export function Workspace({ image }: WorkspaceProps) {
             className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white rounded-md transition-colors font-bold border-none"
           >
             <Download size={16} />
-            Export All
+            <span className="hidden sm:inline">Export All</span>
           </button>
+
+          <div className="h-4 w-px bg-neutral-800 mx-1" />
+          
+          <div className="flex items-center gap-1">
+            <button 
+              onClick={() => setLeftPanelOpen(!leftPanelOpen)}
+              className={`p-1.5 rounded-md transition-colors ${leftPanelOpen ? 'bg-neutral-800 text-blue-400' : 'text-neutral-500 hover:bg-neutral-800'}`}
+              title="Toggle Queue"
+            >
+              <PanelLeft size={18} />
+            </button>
+            <button 
+              onClick={() => setBottomPanelOpen(!bottomPanelOpen)}
+              className={`p-1.5 rounded-md transition-colors ${bottomPanelOpen ? 'bg-neutral-800 text-blue-400' : 'text-neutral-500 hover:bg-neutral-800'}`}
+              title="Toggle Previews"
+            >
+              <PanelBottom size={18} />
+            </button>
+            <button 
+              onClick={() => setRightPanelOpen(!rightPanelOpen)}
+              className={`p-1.5 rounded-md transition-colors ${rightPanelOpen ? 'bg-neutral-800 text-blue-400' : 'text-neutral-500 hover:bg-neutral-800'}`}
+              title="Toggle Metadata"
+            >
+              <PanelRight size={18} />
+            </button>
+          </div>
         </div>
       </div>
       
-      <div className={`flex-1 w-full bg-neutral-950 overflow-hidden relative ${isSpacePressed ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'}`} ref={containerRef}>
-        <Stage 
-          width={dimensions.width} 
-          height={dimensions.height}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onWheel={handleWheel}
-          draggable={isSpacePressed}
-          x={stagePos.x}
-          y={stagePos.y}
-          scaleX={stageScale}
-          scaleY={stageScale}
-          onDragEnd={(e) => {
-            if (e.target === e.target.getStage()) {
-              setStagePos({ x: e.target.x(), y: e.target.y() });
-            }
-          }}
-        >
-          <Layer>
-            <Group>
-              <KonvaImage image={image.element} />
-              
-              {rects.map((r) => (
-                <SelectionItem 
-                  key={r.id}
-                  selection={r}
-                  imageWidth={image.width}
-                  imageHeight={image.height}
-                  isSelected={selectedId === r.id}
-                  onSelect={() => setSelectedId(r.id)}
-                  onDelete={() => deleteSelection(r.id)}
-                  onChange={(newPoints) => updateSelection(r.id, newPoints)}
-                  finalScale={stageScale}
-                />
-              ))}
-
-              {isDrawing && newRectStart && newRectEnd && (
-                <KonvaRect
-                  x={Math.min(newRectStart.x, newRectEnd.x)}
-                  y={Math.min(newRectStart.y, newRectEnd.y)}
-                  width={Math.abs(newRectStart.x - newRectEnd.x)}
-                  height={Math.abs(newRectStart.y - newRectEnd.y)}
-                  stroke="#3b82f6"
-                  strokeWidth={2 / stageScale}
-                  dash={[10 / stageScale, 5 / stageScale]}
-                />
-              )}
-            </Group>
-          </Layer>
-        </Stage>
-
-        {/* Metadata Panel */}
-        {selectedSelection && (
-          <div className="absolute top-4 right-4 z-20">
-            <PhotoMetaPanel 
-              metadata={selectedSelection.metadata || { orientation: 0 }}
-              onChange={(m) => updateMetadata(selectedSelection.id, m)}
-              onClose={() => setSelectedId(null)}
-              onExport={() => handleExport(selectedSelection)}
-            />
+      {/* Main Workspace Area */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left Side Panel: Queue */}
+        {leftPanelOpen && (
+          <div className="w-64 bg-neutral-900 border-r border-neutral-800 flex flex-col shrink-0">
+            <div className="p-3 border-b border-neutral-800 flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-widest text-neutral-500">Processing Queue</span>
+              <ListRestart size={14} className="text-neutral-600" />
+            </div>
+            <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-neutral-600">
+              <div className="w-12 h-12 rounded-full bg-neutral-800/50 flex items-center justify-center mb-3">
+                <Loader2 size={20} className="opacity-20" />
+              </div>
+              <p className="text-sm font-medium opacity-40">Queue is empty</p>
+              <p className="text-[10px] mt-1 opacity-30">Detected photos will appear here after selection.</p>
+            </div>
           </div>
         )}
 
-        {/* Zoom Controls */}
-        <div className="absolute bottom-6 right-6 flex flex-col gap-2 z-10">
-          <div className="flex flex-col bg-neutral-900/90 backdrop-blur border border-neutral-700 rounded-lg overflow-hidden shadow-2xl">
-            <button 
-              onClick={() => handleZoom(1.5)}
-              className="p-3 hover:bg-neutral-800 text-neutral-300 transition-colors border-none"
-              title="Zoom In"
+        {/* Center: Canvas */}
+        <div className="flex-1 relative bg-neutral-950 overflow-hidden" ref={containerRef}>
+          <div className={`absolute inset-0 ${isSpacePressed ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'}`}>
+            <Stage 
+              width={dimensions.width} 
+              height={dimensions.height}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onWheel={handleWheel}
+              draggable={isSpacePressed}
+              x={stagePos.x}
+              y={stagePos.y}
+              scaleX={stageScale}
+              scaleY={stageScale}
+              onDragEnd={(e) => {
+                if (e.target === e.target.getStage()) {
+                  setStagePos({ x: e.target.x(), y: e.target.y() });
+                }
+              }}
             >
-              <Plus size={20} />
-            </button>
-            <div className="h-px bg-neutral-700 w-full" />
-            <button 
-              onClick={() => handleZoom(1/1.5)}
-              className="p-3 hover:bg-neutral-800 text-neutral-300 transition-colors border-none"
-              title="Zoom Out"
-            >
-              <Minus size={20} />
-            </button>
-            <div className="h-px bg-neutral-700 w-full" />
-            <button 
-              onClick={resetZoom}
-              className="p-3 hover:bg-neutral-800 text-neutral-300 transition-colors border-none text-xs font-bold"
-              title="Fit to Screen"
-            >
-              FIT
-            </button>
+              <Layer>
+                <Group>
+                  <KonvaImage image={image.element} />
+                  
+                  {rects.map((r) => (
+                    <SelectionItem 
+                      key={r.id}
+                      selection={r}
+                      imageWidth={image.width}
+                      imageHeight={image.height}
+                      isSelected={selectedId === r.id}
+                      onSelect={() => setSelectedId(r.id)}
+                      onDelete={() => deleteSelection(r.id)}
+                      onChange={(newPoints) => updateSelection(r.id, newPoints)}
+                      finalScale={stageScale}
+                    />
+                  ))}
+
+                  {isDrawing && newRectStart && newRectEnd && (
+                    <KonvaRect
+                      x={Math.min(newRectStart.x, newRectEnd.x)}
+                      y={Math.min(newRectStart.y, newRectEnd.y)}
+                      width={Math.abs(newRectStart.x - newRectEnd.x)}
+                      height={Math.abs(newRectStart.y - newRectEnd.y)}
+                      stroke="#3b82f6"
+                      strokeWidth={2 / stageScale}
+                      dash={[10 / stageScale, 5 / stageScale]}
+                    />
+                  )}
+                </Group>
+              </Layer>
+            </Stage>
           </div>
-          <div className="bg-neutral-900/90 backdrop-blur border border-neutral-700 rounded-lg px-2 py-1 text-[10px] text-neutral-500 text-center font-mono">
-           HOLD SPACE TO PAN
+
+          {/* Floating Zoom Controls - stay relative to center area */}
+          <div className="absolute bottom-6 right-6 flex flex-col gap-2 z-10">
+            <div className="flex flex-col bg-neutral-900/90 backdrop-blur border border-neutral-700 rounded-lg overflow-hidden shadow-2xl">
+              <button 
+                onClick={() => handleZoom(1.5)}
+                className="p-3 hover:bg-neutral-800 text-neutral-300 transition-colors border-none"
+                title="Zoom In"
+              >
+                <Plus size={20} />
+              </button>
+              <div className="h-px bg-neutral-700 w-full" />
+              <button 
+                onClick={() => handleZoom(1/1.5)}
+                className="p-3 hover:bg-neutral-800 text-neutral-300 transition-colors border-none"
+                title="Zoom Out"
+              >
+                <Minus size={20} />
+              </button>
+              <div className="h-px bg-neutral-700 w-full" />
+              <button 
+                onClick={resetZoom}
+                className="p-3 hover:bg-neutral-800 text-neutral-300 transition-colors border-none text-xs font-bold"
+                title="Fit to Screen"
+              >
+                FIT
+              </button>
+            </div>
+            <div className="bg-neutral-900/90 backdrop-blur border border-neutral-700 rounded-lg px-2 py-1 text-[10px] text-neutral-500 text-center font-mono">
+             SPACE TO PAN
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Preview Strip */}
-      {rects.length > 0 && (
-        <div className="h-44 w-full bg-neutral-900 border-t border-neutral-800 flex items-center px-4 gap-4 overflow-x-auto shrink-0">
-          {rects.map((r) => (
-            <div 
-              key={r.id}
-              onClick={() => setSelectedId(r.id)}
-              className={`flex flex-col gap-1 cursor-pointer transition-all ${selectedId === r.id ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-neutral-900 rounded scale-105' : 'opacity-80 hover:opacity-100 hover:scale-[1.02]'}`}
-            >
-              <CropPreview 
-                image={image}
-                points={r.points}
-                orientation={r.metadata?.orientation || 0}
-              />
-              <div className="flex justify-between items-center text-[10px] font-bold text-neutral-400 px-1 uppercase tracking-tight">
-                <span>{r.metadata?.date || 'NO DATE'}</span>
-                <span className="truncate max-w-[60px]">{r.metadata?.location?.city || r.metadata?.city || 'NO CITY'}</span>
-              </div>
+        {/* Right Side Panel: Metadata */}
+        {rightPanelOpen && (
+          <div className="w-80 bg-neutral-900 border-l border-neutral-800 flex flex-col shrink-0 overflow-y-auto">
+            <div className="p-3 border-b border-neutral-800 flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-widest text-neutral-500">Metadata Editor</span>
+              <Info size={14} className="text-neutral-600" />
             </div>
-          ))}
-          <div className="text-neutral-600 flex flex-col items-center justify-center h-[120px] px-8 text-center border-2 border-dashed border-neutral-800 rounded">
-            <Info size={20} className="mb-1 opacity-20" />
-            <span className="text-[10px] uppercase font-bold opacity-30">Selection Previews</span>
+            <div className="p-4 flex-1">
+              {selectedSelection ? (
+                <PhotoMetaPanel 
+                  metadata={selectedSelection.metadata || { orientation: 0 }}
+                  onChange={(m) => updateMetadata(selectedSelection.id, m)}
+                  onClose={() => setSelectedId(null)}
+                  onExport={() => handleExport(selectedSelection)}
+                />
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-center text-neutral-500 py-12">
+                  <div className="w-12 h-12 rounded-full bg-neutral-800/50 flex items-center justify-center mb-3">
+                    <ChevronRight size={20} className="opacity-20" />
+                  </div>
+                  <p className="text-sm font-medium opacity-40">No selection active</p>
+                  <p className="text-[10px] mt-1 opacity-30">Click on a photo region to edit its metadata.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+      
+      {/* Bottom Panel: Previews Strip */}
+      {bottomPanelOpen && rects.length > 0 && (
+        <div className="h-48 w-full bg-neutral-900 border-t border-neutral-800 flex flex-col shrink-0">
+          <div className="px-3 py-1.5 border-b border-neutral-800 flex items-center justify-between bg-neutral-900/50">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-neutral-500">Selection Previews ({rects.length})</span>
+            <ChevronDown size={14} className="text-neutral-600" />
+          </div>
+          <div className="flex-1 flex items-center px-4 gap-4 overflow-x-auto py-3 custom-scrollbar">
+            {rects.map((r) => (
+              <div 
+                key={r.id}
+                onClick={() => setSelectedId(r.id)}
+                className={`flex flex-col gap-1 cursor-pointer transition-all ${selectedId === r.id ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-neutral-900 rounded scale-105' : 'opacity-80 hover:opacity-100 hover:scale-[1.02]'}`}
+              >
+                <CropPreview 
+                  image={image}
+                  points={r.points}
+                  orientation={r.metadata?.orientation || 0}
+                />
+                <div className="flex justify-between items-center text-[10px] font-bold text-neutral-400 px-1 uppercase tracking-tight">
+                  <span>{r.metadata?.date || 'NO DATE'}</span>
+                  <span className="truncate max-w-[60px]">{r.metadata?.location?.city || r.metadata?.city || 'NO CITY'}</span>
+                </div>
+              </div>
+            ))}
+            <div className="text-neutral-600 flex flex-col items-center justify-center h-[120px] px-8 text-center border-2 border-dashed border-neutral-800 rounded shrink-0">
+              <Info size={16} className="mb-1 opacity-20" />
+              <span className="text-[10px] uppercase font-bold opacity-30">Add more</span>
+            </div>
           </div>
         </div>
       )}
