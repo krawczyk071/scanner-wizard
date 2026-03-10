@@ -1,10 +1,11 @@
 import { Stage, Layer, Image as KonvaImage, Group, Line as KonvaLine, Rect as KonvaRect, Circle as KonvaCircle } from 'react-konva';
 import type { LoadedImage } from '../utils/imageLoader';
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { RefreshCw, Loader2, Plus, Minus, Info } from 'lucide-react';
+import { RefreshCw, Loader2, Plus, Minus, Info, Download } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { CropPreview } from './CropPreview';
 import { PhotoMetaPanel } from './PhotoMetaPanel';
+import { exportPhoto } from '../utils/exportUtils';
 
 interface Selection {
   id: string;
@@ -287,6 +288,38 @@ export function Workspace({ image }: WorkspaceProps) {
     setRects(rects.map(r => r.id === id ? { ...r, metadata } : r));
   };
 
+  const handleExport = async (selection: Selection) => {
+    if (!image) return;
+    try {
+      await exportPhoto(image, selection.points, {
+        date: selection.metadata?.date,
+        city: selection.metadata?.city,
+        orientation: selection.metadata?.orientation || 0
+      });
+    } catch (err) {
+      console.error('Export failed:', err);
+      alert('Export failed for selection ' + selection.id);
+    }
+  };
+
+  const handleExportAll = async () => {
+    if (!image || rects.length === 0) return;
+    
+    // Validate dates
+    const invalidCount = rects.filter(r => !r.metadata?.date || !/^\d{6}$/.test(r.metadata.date)).length;
+    if (invalidCount > 0) {
+      if (!confirm(`Warning: ${invalidCount} selection(s) are missing a valid date. Export anyway?`)) {
+        return;
+      }
+    }
+
+    for (const r of rects) {
+      await handleExport(r);
+      // Small delay between downloads to prevent browser blocking/congestion
+      await new Promise(res => setTimeout(res, 500));
+    }
+  };
+
   const selectedSelection = useMemo(() => rects.find(r => r.id === selectedId), [rects, selectedId]);
 
   return (
@@ -305,10 +338,19 @@ export function Workspace({ image }: WorkspaceProps) {
           <button 
             onClick={runDetection}
             disabled={detecting}
-            className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-700 disabled:text-neutral-500 text-white rounded-md transition-colors font-medium border-none"
+            className="flex items-center gap-2 px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 disabled:bg-neutral-800 disabled:text-neutral-600 text-neutral-200 border border-neutral-700 rounded-md transition-colors font-medium"
           >
             {detecting ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
             {detecting ? 'Detecting...' : 'Re-detect'}
+          </button>
+
+          <button 
+            onClick={handleExportAll}
+            disabled={rects.length === 0}
+            className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white rounded-md transition-colors font-bold border-none"
+          >
+            <Download size={16} />
+            Export All
           </button>
         </div>
       </div>
@@ -372,6 +414,7 @@ export function Workspace({ image }: WorkspaceProps) {
               metadata={selectedSelection.metadata || { orientation: 0 }}
               onChange={(m) => updateMetadata(selectedSelection.id, m)}
               onClose={() => setSelectedId(null)}
+              onExport={() => handleExport(selectedSelection)}
             />
           </div>
         )}

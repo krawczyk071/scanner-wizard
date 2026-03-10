@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowUp, ArrowRight, ArrowDown, ArrowLeft, X } from 'lucide-react';
+import { ArrowUp, ArrowRight, ArrowDown, ArrowLeft, X, Download } from 'lucide-react';
 
 interface Metadata {
   date?: string;
@@ -11,9 +11,10 @@ interface PhotoMetaPanelProps {
   metadata: Metadata;
   onChange: (metadata: Metadata) => void;
   onClose: () => void;
+  onExport: () => void;
 }
 
-export function PhotoMetaPanel({ metadata, onChange, onClose }: PhotoMetaPanelProps) {
+export function PhotoMetaPanel({ metadata, onChange, onClose, onExport }: PhotoMetaPanelProps) {
   const [dateValue, setDateValue] = useState(metadata.date || '');
   const [dateError, setDateError] = useState<string | null>(null);
 
@@ -98,6 +99,15 @@ export function PhotoMetaPanel({ metadata, onChange, onClose }: PhotoMetaPanelPr
           })}
         </div>
       </div>
+
+      <button
+        onClick={onExport}
+        disabled={!!dateError}
+        className="mt-2 w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white rounded-md transition-all font-bold text-sm tracking-tight border-none shadow-lg shadow-blue-900/20"
+      >
+        <Download size={16} />
+        EXPORT PHOTO
+      </button>
     </div>
   );
 }
