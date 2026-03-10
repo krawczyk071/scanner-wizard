@@ -1,13 +1,15 @@
 import { useRef, useEffect } from 'react';
 import type { LoadedImage } from '../utils/imageLoader';
+import { applyAutoLevels } from '../utils/imageProcessing';
 
 interface CropPreviewProps {
   image: LoadedImage;
   points: number[];
   orientation: 0 | 90 | 180 | 270;
+  autoLevels?: boolean;
 }
 
-export function CropPreview({ image, points, orientation }: CropPreviewProps) {
+export function CropPreview({ image, points, orientation, autoLevels }: CropPreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -69,7 +71,11 @@ export function CropPreview({ image, points, orientation }: CropPreviewProps) {
     );
 
     ctx.restore();
-  }, [image, points, orientation]);
+
+    if (autoLevels) {
+      applyAutoLevels(ctx, canvas.width, canvas.height);
+    }
+  }, [image, points, orientation, autoLevels]);
 
   return (
     <canvas 

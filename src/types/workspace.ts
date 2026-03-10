@@ -9,5 +9,6 @@ export interface Selection {
     city?: string;
     location?: Location;
     orientation: 0 | 90 | 180 | 270;
+    autoLevels?: boolean;
   };
 }

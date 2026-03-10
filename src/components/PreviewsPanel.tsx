@@ -41,6 +41,7 @@ export function PreviewsPanel({
               image={image}
               points={r.points}
               orientation={r.metadata?.orientation || 0}
+              autoLevels={r.metadata?.autoLevels}
             />
             <div className="flex justify-between items-center text-[10px] font-bold text-neutral-400 px-1 uppercase tracking-tight">
               <span>{r.metadata?.date || 'NO DATE'}</span>

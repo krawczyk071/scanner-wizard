@@ -1,5 +1,6 @@
 import type { LoadedImage } from './imageLoader';
 import { type Location } from './locationStorage';
+import { applyAutoLevels } from './imageProcessing';
 import * as piexif from 'piexifjs';
 
 interface ExportMetadata {
@@ -7,6 +8,7 @@ interface ExportMetadata {
   city?: string;
   location?: Location;
   orientation: 0 | 90 | 180 | 270;
+  autoLevels?: boolean;
 }
 
 export async function exportPhoto(
@@ -84,10 +86,14 @@ export async function exportPhoto(
     image.element,
     minX, minY, sourceWidth, sourceHeight,
     -drawW / 2, -drawH / 2, drawW, drawH
-  );
-  ctx.restore();
+    );
+    ctx.restore();
 
-  // Export to Blob/DataURL
+    if (metadata.autoLevels) {
+      applyAutoLevels(ctx, canvas.width, canvas.height);
+    }
+
+    // Export to Blob/DataURL
   const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
   let finalDataUrl = dataUrl;
 

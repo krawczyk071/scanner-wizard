@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
-import { ArrowUp, ArrowRight, ArrowDown, ArrowLeft, X, Download, MapPin, ChevronDown } from 'lucide-react';
+import { ArrowUp, ArrowRight, ArrowDown, ArrowLeft, X, Download, MapPin, ChevronDown, Sparkles } from 'lucide-react';
 import { type Location, getSavedLocations } from '../utils/locationStorage';
-import { deleteLocation as _unused_delete } from '../utils/locationStorage'; // Just to avoid confusion with local state
 
 export interface Metadata {
   date?: string;
   city?: string;
   location?: Location;
   orientation: 0 | 90 | 180 | 270;
+  autoLevels?: boolean;
 }
 
 interface PhotoMetaPanelProps {
@@ -181,6 +181,19 @@ export function PhotoMetaPanel({ metadata, onChange, onClose, onExport, isGlobal
               );
             })}
           </div>
+        </div>
+      )}
+
+      {!isGlobal && (
+        <div className="flex flex-col gap-2">
+          <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Enhance</label>
+          <button
+            onClick={() => onChange({ ...metadata, autoLevels: !metadata.autoLevels })}
+            className={`flex items-center justify-center gap-2 p-2 rounded border transition-all ${metadata.autoLevels ? 'bg-blue-600 border-blue-500 text-white' : 'bg-neutral-950 border-neutral-800 text-neutral-500 hover:border-neutral-700'}`}
+          >
+            <Sparkles size={16} />
+            <span className="text-xs font-bold uppercase tracking-tight">Auto Levels</span>
+          </button>
         </div>
       )}
 
