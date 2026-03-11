@@ -1,4 +1,4 @@
-import { RefreshCw, Loader2, Download, Map, PanelLeft, PanelRight, PanelBottom, ArrowRight } from 'lucide-react';
+import { RefreshCw, Loader2, Download, Map, PanelLeft, PanelRight, PanelBottom, ArrowRight, Settings as SettingsIcon } from 'lucide-react';
 import type { LoadedImage } from '../utils/imageLoader';
 
 interface WorkspaceHeaderProps {
@@ -6,6 +6,7 @@ interface WorkspaceHeaderProps {
   queue: File[];
   onNext: () => void;
   setShowLocations: (show: boolean) => void;
+  setShowSettings: (show: boolean) => void;
   runDetection: () => void;
   detecting: boolean;
   handleExportAll: () => void;
@@ -24,6 +25,7 @@ export function WorkspaceHeader({
   queue,
   onNext,
   setShowLocations,
+  setShowSettings,
   runDetection,
   detecting,
   handleExportAll,
@@ -50,6 +52,15 @@ export function WorkspaceHeader({
         >
           <Map size={16} />
           <span className="hidden sm:inline">Locations</span>
+        </button>
+
+        <button 
+          onClick={() => setShowSettings(true)}
+          className="flex items-center gap-2 px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-md transition-colors font-medium border border-neutral-700"
+          title="App Settings"
+        >
+          <SettingsIcon size={16} />
+          <span className="hidden sm:inline">Settings</span>
         </button>
 
         <div className="h-4 w-px bg-neutral-800 mx-1" />

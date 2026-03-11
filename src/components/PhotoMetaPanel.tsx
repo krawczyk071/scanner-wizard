@@ -35,7 +35,13 @@ export function PhotoMetaPanel({ metadata, onChange, onClose, onExport, isGlobal
   }, [metadata.date, metadata.city, metadata.location]);
 
   useEffect(() => {
-    setLocations(getSavedLocations());
+    const updateLocations = () => {
+      setLocations(getSavedLocations());
+    };
+    
+    updateLocations();
+    window.addEventListener('locations_changed', updateLocations);
+    return () => window.removeEventListener('locations_changed', updateLocations);
   }, []);
 
   useEffect(() => {
@@ -76,6 +82,16 @@ export function PhotoMetaPanel({ metadata, onChange, onClose, onExport, isGlobal
 
   const orientations: (0 | 90 | 180 | 270)[] = [0, 90, 180, 270];
   const icons = [ArrowUp, ArrowRight, ArrowDown, ArrowLeft];
+
+  const filteredLocations = locations.filter(loc => {
+    if (!inputValue) return true;
+    const search = inputValue.toLowerCase();
+    return (
+      loc.city.toLowerCase().includes(search) ||
+      (loc.street && loc.street.toLowerCase().includes(search)) ||
+      (loc.subarea && loc.subarea.toLowerCase().includes(search))
+    );
+  });
 
   return (
     <div className="flex flex-col gap-4 p-4 bg-neutral-900 border border-neutral-800 rounded-lg shadow-xl w-64">
@@ -134,7 +150,7 @@ export function PhotoMetaPanel({ metadata, onChange, onClose, onExport, isGlobal
 
         {showDropdown && (
           <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-neutral-900 border border-neutral-800 rounded shadow-2xl max-h-48 overflow-y-auto">
-            {locations
+            {filteredLocations
               .map(loc => (
                 <button
                   key={loc.id}
@@ -161,9 +177,11 @@ export function PhotoMetaPanel({ metadata, onChange, onClose, onExport, isGlobal
                   </div>
                 </button>
               ))}
-            {locations.length === 0 && (
+            {filteredLocations.length === 0 && (
               <div className="px-3 py-4 text-center">
-                <p className="text-[10px] text-neutral-600 italic">No locations saved. Add some in the Locations panel.</p>
+                <p className="text-[10px] text-neutral-600 italic">
+                  {inputValue ? `No matches for "${inputValue}"` : 'No locations saved. Add some in the Locations panel.'}
+                </p>
               </div>
             )}
           </div>

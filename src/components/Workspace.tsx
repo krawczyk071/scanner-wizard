@@ -5,6 +5,7 @@ import { Plus, Minus, Info, Maximize } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { PhotoMetaPanel, type Metadata } from './PhotoMetaPanel';
 import { LocationSettings } from './LocationSettings';
+import { Settings } from './Settings';
 import { exportPhoto } from '../utils/exportUtils';
 import type { Selection } from '../types/workspace';
 import { SelectionItem } from './SelectionItem';
@@ -13,6 +14,7 @@ import { QueuePanel } from './QueuePanel';
 import { PreviewsPanel } from './PreviewsPanel';
 import { SniperScope } from './SniperScope';
 import type Konva from 'konva';
+import { getSettings } from '../utils/settingsStorage';
 
 interface WorkspaceProps {
   image: LoadedImage;
@@ -33,6 +35,7 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
   const [newRectEnd, setNewRectEnd] = useState<{ x: number, y: number } | null>(null);
   
   const [showLocations, setShowLocations] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [bottomPanelOpen, setBottomPanelOpen] = useState(true);
@@ -477,6 +480,7 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
         queue={queue}
         onNext={onNext}
         setShowLocations={setShowLocations}
+        setShowSettings={setShowSettings}
         runDetection={runDetection}
         detecting={detecting}
         handleExportAll={handleExportAll}
@@ -609,6 +613,7 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
         <PreviewsPanel rects={rects} selectedId={selectedId} image={image} zoomToSelection={zoomToSelection} setBottomPanelOpen={setBottomPanelOpen} />
       )}
       {showLocations && <LocationSettings onClose={() => setShowLocations(false)} />}
+      {showSettings && <Settings onClose={() => setShowSettings(false)} />}
     </div>
   );
 }

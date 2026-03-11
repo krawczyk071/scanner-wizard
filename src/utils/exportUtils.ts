@@ -2,6 +2,7 @@ import type { LoadedImage } from './imageLoader';
 import { type Location } from './locationStorage';
 import { applyAutoLevels } from './imageProcessing';
 import * as piexif from 'piexifjs';
+import { getSettings } from './settingsStorage';
 
 interface ExportMetadata {
   date?: string;
@@ -146,9 +147,20 @@ export async function exportPhoto(
   }
 
   // Trigger download
-  const filename = generateFilename(metadata.date || 'unknown', 'jpg', parseFullYear);
+  const settings = getSettings();
+  const rawFilename = generateFilename(metadata.date || 'unknown', 'jpg', parseFullYear);
+  
+  // Browsers cannot save directly to a path, so we use the path as a prefix
+  // If path ends with slash, we use it as is, otherwise we add one.
+  let pathPrefix = settings.defaultDownloadPath.trim();
+  if (pathPrefix && !pathPrefix.endsWith('/') && !pathPrefix.endsWith('\\')) {
+    pathPrefix += '/';
+  }
+  
+  const finalFilename = pathPrefix + rawFilename;
+  
   const link = document.createElement('a');
-  link.download = filename;
+  link.download = finalFilename;
   link.href = finalDataUrl;
   document.body.appendChild(link);
   link.click();

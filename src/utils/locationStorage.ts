@@ -30,9 +30,13 @@ export function saveLocation(location: Location): void {
     locations.push(location);
   }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(locations));
+  // Dispatch custom event to notify components
+  window.dispatchEvent(new Event('locations_changed'));
 }
 
 export function deleteLocation(id: string): void {
   const locations = getSavedLocations().filter(l => l.id !== id);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(locations));
+  // Dispatch custom event to notify components
+  window.dispatchEvent(new Event('locations_changed'));
 }
