@@ -10,6 +10,7 @@ interface SniperScopeProps {
   };
   stageScale: number;
   stagePos: { x: number; y: number };
+  stageRotation: number;
   dimensions: { width: number; height: number };
   image: LoadedImage;
 }
@@ -18,19 +19,32 @@ export function SniperScope({
   activeDragInfo,
   stageScale,
   stagePos,
+  stageRotation,
   dimensions,
   image
 }: SniperScopeProps) {
-  const screenY = activeDragInfo.y * stageScale + stagePos.y;
+  // Convert handle position to screen space to decide where to show the scope
+  const theta = (stageRotation * Math.PI) / 180;
+  const cos = Math.cos(theta);
+  const sin = Math.sin(theta);
+  
+  const screenX = stagePos.x + (activeDragInfo.x * stageScale * cos - activeDragInfo.y * stageScale * sin);
+  const screenY = stagePos.y + (activeDragInfo.x * stageScale * sin + activeDragInfo.y * stageScale * cos);
+  
   const isNearTop = screenY < 160; // 160px from top
-  const isNearRight = (activeDragInfo.x * stageScale + stagePos.x) > dimensions.width - 160;
+  const isNearRight = screenX > dimensions.width - 160;
+  
+  // Offset to show the scope near the handle but not under it
+  const offsetX = isNearRight ? 100 / stageScale : -100 / stageScale;
+  const offsetY = isNearTop ? -100 / stageScale : 100 / stageScale;
   
   return (
     <Group
       x={activeDragInfo.x}
       y={activeDragInfo.y}
-      offsetX={isNearRight ? 100 / stageScale : -100 / stageScale}
-      offsetY={isNearTop ? -100 / stageScale : 100 / stageScale}
+      offsetX={offsetX}
+      offsetY={offsetY}
+      rotation={-stageRotation}
     >
       {/* Outer Ring / Glass */}
       <KonvaCircle
@@ -56,6 +70,7 @@ export function SniperScope({
           offsetY={activeDragInfo.y}
           scaleX={4}
           scaleY={4}
+          rotation={stageRotation}
         />
       </Group>
 

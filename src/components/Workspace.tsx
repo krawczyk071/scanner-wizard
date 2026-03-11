@@ -49,6 +49,7 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
 
   const [stageScale, setStageScale] = useState(1);
   const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
+  const [stageRotation, setStageRotation] = useState(0);
   const [isSpacePressed, setIsSpacePressed] = useState(false);
 
   const workerRef = useRef<Worker | null>(null);
@@ -66,7 +67,41 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
 
   const updateMetadata = useCallback((id: string, metadata: Metadata) => {
     setRects(prev => prev.map(r => r.id === id ? { ...r, metadata } : r));
-  }, []);
+    
+    // If we're updating the currently selected item's orientation,
+    // we should update the stage rotation to match.
+    if (id === selectedId) {
+      const orientation = metadata.orientation || 0;
+      const newRotation = (360 - orientation) % 360;
+      setStageRotation(newRotation);
+      
+      // We also need to update the stage position to keep the selection centered
+      // but without changing the current scale.
+      const selection = rects.find(r => r.id === id);
+      if (selection) {
+        const p = selection.points;
+        const minX = Math.min(p[0], p[2], p[4], p[6]);
+        const maxX = Math.max(p[0], p[2], p[4], p[6]);
+        const minY = Math.min(p[1], p[3], p[5], p[7]);
+        const maxY = Math.max(p[1], p[3], p[5], p[7]);
+        
+        const centerX_image = minX + (maxX - minX) / 2;
+        const centerY_image = minY + (maxY - minY) / 2;
+        
+        const centerX_screen = dimensions.width / 2;
+        const centerY_screen = dimensions.height / 2;
+        
+        const theta = (newRotation * Math.PI) / 180;
+        const cos = Math.cos(theta);
+        const sin = Math.sin(theta);
+        
+        setStagePos({
+          x: centerX_screen - (centerX_image * stageScale * cos - centerY_image * stageScale * sin),
+          y: centerY_screen - (centerX_image * stageScale * sin + centerY_image * stageScale * cos),
+        });
+      }
+    }
+  }, [selectedId, rects, dimensions, stageScale]);
 
   const zoomToSelection = useCallback((id: string) => {
     const selection = rects.find(r => r.id === id);
@@ -83,18 +118,40 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
     const selWidth = maxX - minX;
     const selHeight = maxY - minY;
 
+    const orientation = selection.metadata?.orientation || 0;
+    const isRotated = orientation === 90 || orientation === 270;
+    
+    // Swap width/height for scale calculation if rotated
+    const displayWidth = isRotated ? selHeight : selWidth;
+    const displayHeight = isRotated ? selWidth : selHeight;
+
     const padding = 40;
     const availableWidth = dimensions.width - padding * 2;
     const availableHeight = dimensions.height - padding * 2;
 
-    const scaleX = availableWidth / selWidth;
-    const scaleY = availableHeight / selHeight;
+    const scaleX = availableWidth / displayWidth;
+    const scaleY = availableHeight / displayHeight;
     const newScale = Math.max(0.05, Math.min(scaleX, scaleY, 10));
 
+    // Calculate rotation to make it upright
+    const newRotation = (360 - orientation) % 360;
+    const theta = (newRotation * Math.PI) / 180;
+    const cos = Math.cos(theta);
+    const sin = Math.sin(theta);
+    
+    const centerX_image = minX + selWidth / 2;
+    const centerY_image = minY + selHeight / 2;
+    
+    const centerX_screen = dimensions.width / 2;
+    const centerY_screen = dimensions.height / 2;
+
     setStageScale(newScale);
+    setStageRotation(newRotation);
+    
+    // Set stage position so that the rotated selection center is at screen center
     setStagePos({
-      x: (dimensions.width / 2) - (minX + selWidth / 2) * newScale,
-      y: (dimensions.height / 2) - (minY + selHeight / 2) * newScale,
+      x: centerX_screen - (centerX_image * newScale * cos - centerY_image * newScale * sin),
+      y: centerY_screen - (centerX_image * newScale * sin + centerY_image * newScale * cos),
     });
   }, [rects, image, dimensions]);
 
@@ -106,6 +163,7 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
     const initialScale = Math.max(0.05, Math.min(scaleXWithPadding, scaleYWithPadding, 1));
     
     setStageScale(initialScale);
+    setStageRotation(0);
     setStagePos({
       x: (dimensions.width - image.width * initialScale) / 2,
       y: (dimensions.height - image.height * initialScale) / 2,
@@ -120,17 +178,25 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
     const centerX = dimensions.width / 2;
     const centerY = dimensions.height / 2;
     
+    // Convert screen center to image space
+    const theta = (stageRotation * Math.PI) / 180;
+    const cos = Math.cos(theta);
+    const sin = Math.sin(theta);
+    
+    const dx = (centerX - stagePos.x) / oldScale;
+    const dy = (centerY - stagePos.y) / oldScale;
+    
     const mousePointTo = {
-      x: (centerX - stagePos.x) / oldScale,
-      y: (centerY - stagePos.y) / oldScale,
+      x: dx * cos + dy * sin,
+      y: dy * cos - dx * sin,
     };
 
     setStageScale(clampedScale);
     setStagePos({
-      x: centerX - mousePointTo.x * clampedScale,
-      y: centerY - mousePointTo.y * clampedScale,
+      x: centerX - (mousePointTo.x * clampedScale * cos - mousePointTo.y * clampedScale * sin),
+      y: centerY - (mousePointTo.x * clampedScale * sin + mousePointTo.y * clampedScale * cos),
     });
-  }, [dimensions, stageScale, stagePos]);
+  }, [dimensions, stageScale, stagePos, stageRotation]);
 
   const handleWheel = useCallback((e: Konva.KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault();
@@ -140,21 +206,24 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
     const pointer = stage.getPointerPosition();
     if (!pointer) return;
 
-    const mousePointTo = {
-      x: (pointer.x - stagePos.x) / oldScale,
-      y: (pointer.y - stagePos.y) / oldScale,
-    };
+    // Convert pointer to image space using Konva's transform
+    const transform = stage.getAbsoluteTransform().copy().invert();
+    const mousePointTo = transform.point(pointer);
 
     const scaleBy = 1.1;
     const newScale = e.evt.deltaY < 0 ? oldScale * scaleBy : oldScale / scaleBy;
     const clampedScale = Math.max(0.05, Math.min(20, newScale));
 
+    const theta = (stageRotation * Math.PI) / 180;
+    const cos = Math.cos(theta);
+    const sin = Math.sin(theta);
+
     setStageScale(clampedScale);
     setStagePos({
-      x: pointer.x - mousePointTo.x * clampedScale,
-      y: pointer.y - mousePointTo.y * clampedScale,
+      x: pointer.x - (mousePointTo.x * clampedScale * cos - mousePointTo.y * clampedScale * sin),
+      y: pointer.y - (mousePointTo.x * clampedScale * sin + mousePointTo.y * clampedScale * cos),
     });
-  }, [stageScale, stagePos]);
+  }, [stageScale, stagePos, stageRotation]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -167,10 +236,10 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
       if (!stage) return;
       const pos = stage.getPointerPosition();
       if (!pos) return;
-      const localPos = {
-        x: (pos.x - stagePos.x) / stageScale,
-        y: (pos.y - stagePos.y) / stageScale
-      };
+      
+      const transform = stage.getAbsoluteTransform().copy().invert();
+      const localPos = transform.point(pos);
+      
       const constrainedX = Math.max(0, Math.min(image.width, localPos.x));
       const constrainedY = Math.max(0, Math.min(image.height, localPos.y));
       setIsDrawing(true);
@@ -185,10 +254,10 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
     if (!stage) return;
     const pos = stage.getPointerPosition();
     if (!pos) return;
-    const localPos = {
-      x: (pos.x - stagePos.x) / stageScale,
-      y: (pos.y - stagePos.y) / stageScale
-    };
+    
+    const transform = stage.getAbsoluteTransform().copy().invert();
+    const localPos = transform.point(pos);
+    
     const constrainedX = Math.max(0, Math.min(image.width, localPos.x));
     const constrainedY = Math.max(0, Math.min(image.height, localPos.y));
     setNewRectEnd({ x: constrainedX, y: constrainedY });
@@ -440,6 +509,7 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
               y={stagePos.y}
               scaleX={stageScale}
               scaleY={stageScale}
+              rotation={stageRotation}
               onDragEnd={(e) => {
                 if (e.target === e.target.getStage()) {
                   setStagePos({ x: e.target.x(), y: e.target.y() });
@@ -480,6 +550,7 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
                     activeDragInfo={activeDragInfo}
                     stageScale={stageScale}
                     stagePos={stagePos}
+                    stageRotation={stageRotation}
                     dimensions={dimensions}
                     image={image}
                   />
