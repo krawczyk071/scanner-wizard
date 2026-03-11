@@ -1,19 +1,26 @@
 import { Plus, ListRestart } from 'lucide-react';
 import type { LoadedImage } from '../utils/imageLoader';
+import { MiniMap } from './MiniMap';
+import type { Selection } from '../types/workspace';
 
 interface QueuePanelProps {
   image: LoadedImage;
   queue: File[];
   onNext: () => void;
+  rects: Selection[];
+  selectedId: string | null;
 }
 
-export function QueuePanel({ image, queue, onNext }: QueuePanelProps) {
+export function QueuePanel({ image, queue, onNext, rects, selectedId }: QueuePanelProps) {
   return (
     <div className="w-64 bg-neutral-900 border-r border-neutral-800 flex flex-col shrink-0">
       <div className="p-3 border-b border-neutral-800 flex items-center justify-between">
         <span className="text-xs font-bold uppercase tracking-widest text-neutral-500">Processing Queue</span>
         <ListRestart size={14} className="text-neutral-600" />
       </div>
+
+      <MiniMap image={image} rects={rects} selectedId={selectedId} />
+
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         <div className="p-3">
           <div className="flex flex-col gap-2">

@@ -492,7 +492,13 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
       
       <div className="flex-1 flex overflow-hidden min-h-0">
         {leftPanelOpen && (
-          <QueuePanel image={image} queue={queue} onNext={onNext} />
+          <QueuePanel 
+            image={image} 
+            queue={queue} 
+            onNext={onNext} 
+            rects={rects} 
+            selectedId={selectedId} 
+          />
         )}
 
         <div className="flex-1 relative bg-neutral-950 overflow-hidden" ref={containerRef}>
