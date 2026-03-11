@@ -47,141 +47,151 @@ function processImageContours(imageData: ImageData) {
   const gray = new cv.Mat();
   cv.cvtColor(resized, gray, cv.COLOR_RGBA2GRAY, 0);
 
-  const blurred = new cv.Mat();
-  cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT);
+  const H = gray.rows;
+  const W = gray.cols;
 
-  const H = blurred.rows;
-  const W = blurred.cols;
+  const allCandidates: any[] = [];
 
-  // ── Background detection via pixel histogram ──────────────────────────────
-  // Count how many pixels are very bright (>220) vs very dark (<35).
-  // This avoids the corner-sampling trap where dark scanner frames cause wrong detection.
-  const tmpBright = new cv.Mat();
-  const tmpDark = new cv.Mat();
-  cv.threshold(blurred, tmpBright, 220, 255, cv.THRESH_BINARY);
-  cv.threshold(blurred, tmpDark, 35, 255, cv.THRESH_BINARY_INV);
-  const nBright = cv.countNonZero(tmpBright);
-  const nDark = cv.countNonZero(tmpDark);
-  tmpBright.delete(); tmpDark.delete();
-  const bgIsLight = nBright >= nDark;
-  console.log(`OpenCV: bright=${nBright} dark=${nDark} bg=${bgIsLight ? 'LIGHT' : 'DARK'}`);
-
-  // ── Pass 1: Otsu Global Threshold ────────────────────────────────────────
-  const otsu = new cv.Mat();
-  if (bgIsLight) {
-    cv.threshold(blurred, otsu, 0, 255, cv.THRESH_BINARY_INV + cv.THRESH_OTSU);
-  } else {
-    cv.threshold(blurred, otsu, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
+  // ── Strategy: Multiple Channels ───────────────────────────────────────────
+  // Process Grayscale, Red, Green, and Blue channels separately
+  const channels = new cv.MatVector();
+  cv.split(resized, channels);
+  
+  const matsToProcess = [gray];
+  if (channels.size() >= 3) {
+    matsToProcess.push(channels.get(0), channels.get(1), channels.get(2));
   }
 
-  // MORPH_OPEN: break thin connections between scanner frame and photo content
-  // (dark photo backgrounds can merge with the dark scanner border)
-  const openKernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(13, 13));
-  const opened = new cv.Mat();
-  cv.morphologyEx(otsu, opened, cv.MORPH_OPEN, openKernel);
-  openKernel.delete();
-  otsu.delete();
+  for (const mat of matsToProcess) {
+    // Apply CLAHE to each channel
+    const clahe = new cv.CLAHE(2.0, new cv.Size(8, 8));
+    const eq = new cv.Mat();
+    clahe.apply(mat, eq);
+    clahe.delete();
 
-  // MORPH_CLOSE: fill holes within photos
-  const closeKernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(11, 11));
-  const morphOtsu = new cv.Mat();
-  cv.morphologyEx(opened, morphOtsu, cv.MORPH_CLOSE, closeKernel);
-  opened.delete();
+    const blurred = new cv.Mat();
+    cv.GaussianBlur(eq, blurred, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT);
+    eq.delete();
 
-  // ── Pass 2: Adaptive threshold (catches light-colored photos) ────────────
-  const adaptive = new cv.Mat();
-  cv.adaptiveThreshold(blurred, adaptive, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 51, 3);
+    // Try multiple adaptive block sizes
+    const blockSizes = [41, 81, 121];
+    for (const blockSize of blockSizes) {
+      const adaptive = new cv.Mat();
+      cv.adaptiveThreshold(blurred, adaptive, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, blockSize, 2);
+      
+      // Minimal border clear
+      const bp = 5;
+      cv.rectangle(adaptive, new cv.Point(0, 0), new cv.Point(W, bp), [0, 0, 0, 255], -1);
+      cv.rectangle(adaptive, new cv.Point(0, 0), new cv.Point(bp, H), [0, 0, 0, 255], -1);
+      cv.rectangle(adaptive, new cv.Point(0, H - bp), new cv.Point(W, H), [0, 0, 0, 255], -1);
+      cv.rectangle(adaptive, new cv.Point(W - bp, 0), new cv.Point(W, H), [0, 0, 0, 255], -1);
 
-  // Use smaller close kernel for Adaptive to avoid merging adjacent photos
-  const adaptiveClose = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(7, 7));
-  const morphAdaptive = new cv.Mat();
-  cv.morphologyEx(adaptive, morphAdaptive, cv.MORPH_CLOSE, adaptiveClose);
-  adaptive.delete(); adaptiveClose.delete();
+      const ctrs = new cv.MatVector();
+      const hier = new cv.Mat();
+      cv.findContours(adaptive, ctrs, hier, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
-  // ── Thin border clear (5px) ───────────────────────────────────────────────
-  const bp = 5;
-  for (const mat of [morphOtsu, morphAdaptive]) {
-    cv.rectangle(mat, new cv.Point(0, 0), new cv.Point(W, bp), [0, 0, 0, 255], -1);
-    cv.rectangle(mat, new cv.Point(0, 0), new cv.Point(bp, H), [0, 0, 0, 255], -1);
-    cv.rectangle(mat, new cv.Point(0, H - bp), new cv.Point(W, H), [0, 0, 0, 255], -1);
-    cv.rectangle(mat, new cv.Point(W - bp, 0), new cv.Point(W, H), [0, 0, 0, 255], -1);
-  }
-
-  const imgArea = W * H;
-  const minArea = imgArea * 0.03; // 3% minimum
-  const maxArea = imgArea * 0.65; // 65% maximum
-
-  function extractCandidates(mask: any): any[] {
-    const ctrs = new cv.MatVector();
-    const hier = new cv.Mat();
-    cv.findContours(mask, ctrs, hier, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-    const results: any[] = [];
-    for (let i = 0; i < ctrs.size(); ++i) {
-      const c = ctrs.get(i);
-      const area = cv.contourArea(c);
-      if (area > minArea && area < maxArea) {
-        const br = cv.boundingRect(c);
-        const hull = new cv.Mat();
-        cv.convexHull(c, hull);
-        const hullArea = cv.contourArea(hull);
-        const solidity = area / hullArea;
-        hull.delete();
-        const extent = area / (br.width * br.height);
-        const aspect = Math.max(br.width, br.height) / Math.min(br.width, br.height);
-        console.log(`OpenCV: Cand area=${(area / imgArea * 100).toFixed(1)}% sol=${solidity.toFixed(2)} ext=${extent.toFixed(2)} asp=${aspect.toFixed(1)}`);
-        if (solidity > 0.65 && extent > 0.60 && aspect < 5.0) {
-          results.push({ area, br, points: brToPoints(br, scale) });
+      for (let i = 0; i < ctrs.size(); ++i) {
+        const area = cv.contourArea(ctrs.get(i));
+        if (area > (W * H * 0.01)) {
+          allCandidates.push({ area, br: cv.boundingRect(ctrs.get(i)) });
         }
       }
+      adaptive.delete(); ctrs.delete(); hier.delete();
     }
-    ctrs.delete(); hier.delete();
-    return results;
+    blurred.delete();
   }
 
-  const candidatesOtsu = extractCandidates(morphOtsu);
-  const candidatesAdaptive = extractCandidates(morphAdaptive);
-  console.log(`OpenCV: Otsu:${candidatesOtsu.length} Adaptive:${candidatesAdaptive.length}`);
+  channels.delete();
 
-  function overlaps(a: any, b: any, threshold: number): boolean {
-    const ix1 = Math.max(a.br.x, b.br.x);
-    const iy1 = Math.max(a.br.y, b.br.y);
-    const ix2 = Math.min(a.br.x + a.br.width, b.br.x + b.br.width);
-    const iy2 = Math.min(a.br.y + a.br.height, b.br.y + b.br.height);
-    if (ix2 <= ix1 || iy2 <= iy1) return false;
-    const overlapArea = (ix2 - ix1) * (iy2 - iy1);
-    const smallerArea = Math.min(a.br.width * a.br.height, b.br.width * b.br.height);
-    return overlapArea > smallerArea * threshold;
-  }
-
-  function dedup(candidates: any[]): any[] {
+  // ── Smart Merging & Deduplication ────────────────────────────────────────
+  function dedupAndMerge(candidates: any[]): any[] {
     candidates.sort((a, b) => b.area - a.area);
     const result: any[] = [];
-    for (const c of candidates) {
-      if (!result.some(e => overlaps(c, e, 0.35))) result.push(c);
+
+    for (const cand of candidates) {
+      let merged = false;
+      for (const existing of result) {
+        const ix1 = Math.max(cand.br.x, existing.br.x);
+        const iy1 = Math.max(cand.br.y, existing.br.y);
+        const ix2 = Math.min(cand.br.x + cand.br.width, existing.br.x + existing.br.width);
+        const iy2 = Math.min(cand.br.y + cand.br.height, existing.br.y + existing.br.height);
+        
+        if (ix2 > ix1 && iy2 > iy1) {
+          const overlapArea = (ix2 - ix1) * (iy2 - iy1);
+          const smallerArea = Math.min(cand.area, existing.area);
+          if (overlapArea > smallerArea * 0.5) {
+            const x1 = Math.min(cand.br.x, existing.br.x);
+            const y1 = Math.min(cand.br.y, existing.br.y);
+            const x2 = Math.max(cand.br.x + cand.br.width, existing.br.x + existing.br.width);
+            const y2 = Math.max(cand.br.y + cand.br.height, existing.br.y + existing.br.height);
+            existing.br = { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+            existing.area = existing.br.width * existing.br.height;
+            merged = true;
+            break;
+          }
+        }
+      }
+      if (!merged) result.push(cand);
     }
     return result;
   }
 
-  // Combine all candidates and deduplicate — larger candidates win
-  const all = [...candidatesOtsu, ...candidatesAdaptive];
-  const final = dedup(all);
-  console.log(`OpenCV: Final: ${final.length} photo regions.`);
+  const unique = dedupAndMerge(allCandidates);
 
-  // ── Refine bounding boxes to remove white gap padding ────────────────────
+  // ── Size Consensus ──────────────────────────────────────────────────────
+  let final = unique;
+  if (unique.length > 0) {
+    const areas = unique.map(c => c.area).sort((a, b) => a - b);
+    let bestMedian = areas[0];
+    let maxCount = 0;
+    for (const a of areas) {
+      const count = areas.filter(other => Math.abs(other - a) / a <= 0.35).length;
+      if (count >= maxCount) {
+        maxCount = count;
+        bestMedian = a;
+      }
+    }
+    
+    final = unique.filter(c => {
+        const ratio = c.area / bestMedian;
+        return (ratio >= 0.6 && ratio <= 1.4) || (ratio >= 1.6 && ratio <= 2.4) || (ratio >= 2.6 && ratio <= 3.4);
+    });
+    
+    const splitFinal: any[] = [];
+    for (const c of final) {
+        const ratio = c.area / bestMedian;
+        if (ratio >= 1.6 && ratio <= 2.4) {
+            if (c.br.width > c.br.height) {
+                splitFinal.push({ ...c, br: { ...c.br, width: c.br.width / 2 } });
+                splitFinal.push({ ...c, br: { ...c.br, x: c.br.x + c.br.width / 2, width: c.br.width / 2 } });
+            } else {
+                splitFinal.push({ ...c, br: { ...c.br, height: c.br.height / 2 } });
+                splitFinal.push({ ...c, br: { ...c.br, y: c.br.y + c.br.height / 2, height: c.br.height / 2 } });
+            }
+        } else if (ratio >= 2.6 && ratio <= 3.4) {
+            const dim = c.br.width > c.br.height ? 'width' : 'height';
+            const offset = c.br.width > c.br.height ? 'x' : 'y';
+            const size = c.br[dim] / 3;
+            for (let k = 0; k < 3; k++) {
+                const newC = { ...c, br: { ...c.br } };
+                newC.br[dim] = size;
+                newC.br[offset] = c.br[offset] + k * size;
+                splitFinal.push(newC);
+            }
+        } else {
+            splitFinal.push(c);
+        }
+    }
+    final = splitFinal;
+  }
+
   const refined = final.map((c: any) => {
-    const tight = refineBox(c.br, gray, bgIsLight, W, H);
-    return { ...c, br: tight, points: brToPoints(tight, scale) };
+    const tight = refineBox(c.br, gray, true, W, H); // Assume light bg for refinement
+    return { points: brToPoints(tight, scale), orientation: 0 as 0 | 90 | 180 | 270 };
   });
 
-  // Cleanup
-  resized.delete(); gray.delete(); blurred.delete();
-  morphOtsu.delete(); morphAdaptive.delete();
-  closeKernel.delete();
-
-  return refined.map(c => ({
-    points: c.points,
-    orientation: 0 as 0 | 90 | 180 | 270
-  }));
+  resized.delete(); gray.delete();
+  return refined;
 }
 
 function refineBox(br: any, gray: any, bgIsLight: boolean, imgW: number, imgH: number): any {
@@ -194,7 +204,7 @@ function refineBox(br: any, gray: any, bgIsLight: boolean, imgW: number, imgH: n
   const roiRect = new cv.Rect(rx, ry, rw, rh);
   const roi = gray.roi(roiRect);
   const mask = new cv.Mat();
-  const thresh = bgIsLight ? 210 : 50;
+  const thresh = bgIsLight ? 215 : 40;
   if (bgIsLight) {
     cv.threshold(roi, mask, thresh, 255, cv.THRESH_BINARY_INV);
   } else {
@@ -222,7 +232,7 @@ function refineBox(br: any, gray: any, bgIsLight: boolean, imgW: number, imgH: n
 
   if (!hasContent || x2 <= x1 || y2 <= y1) return br;
 
-  const pad = 4;
+  const pad = 2;
   return {
     x: Math.max(0, rx + x1 - pad),
     y: Math.max(0, ry + y1 - pad),
