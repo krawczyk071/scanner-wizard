@@ -1,11 +1,7 @@
 import { useState, useMemo } from 'react';
 import { 
-  ChevronUp,
-  ChevronDown,
   ArrowLeft, 
   Trash2, 
-  Calendar, 
-  MapPin, 
   Search, 
   CheckSquare, 
   Square,
@@ -13,28 +9,16 @@ import {
   SortDesc,
   X,
   Loader2,
-  FileText,
   Save,
-  CheckCircle2,
-  ImagePlus
+  ImagePlus,
+  FolderOpen
 } from 'lucide-react';
 import * as piexif from 'piexifjs';
 import { type Location, getSavedLocations } from '../utils/locationStorage';
 import { v4 as uuidv4 } from 'uuid';
-
-interface BulkImageItem {
-  id: string;
-  file: File;
-  handle?: any; // FileSystemFileHandle
-  previewUrl: string;
-  exifDate?: string; // DDMMYY
-  exifTime?: string; // HH:MM
-  exifLocation?: string; // City/Location
-  exifDescription?: string; // ImageDescription
-  location?: Location;
-  selected: boolean;
-  filename: string;
-}
+import { type BulkImageItem, type ImageGroup } from './ExifBulkEditor/types';
+import { ImageGrid } from './ExifBulkEditor/ImageGrid';
+import { BulkEditSidebar } from './ExifBulkEditor/BulkEditSidebar';
 
 interface ExifBulkEditorProps {
   onBack: () => void;
@@ -57,20 +41,21 @@ export function ExifBulkEditor({ onBack }: ExifBulkEditorProps) {
 
   const savedLocations = getSavedLocations();
 
-  const handleFileSelection = async () => {
+  const processFileHandles = async (handles: any[]) => {
+    setIsProcessing(true);
     try {
-      // @ts-expect-error File System Access API
-      const handles = await window.showOpenFilePicker({
-        multiple: true,
-        types: [{
-          description: 'Images',
-          accept: { 'image/jpeg': ['.jpg', '.jpeg'] }
-        }]
-      });
-
-      setIsProcessing(true);
       const newItems: BulkImageItem[] = await Promise.all(
         handles.map(async (handle: any) => {
+          // Request readwrite permission if not already granted (e.g. from folder)
+          try {
+            const permission = await handle.queryPermission({ mode: 'readwrite' });
+            if (permission !== 'granted') {
+              await handle.requestPermission({ mode: 'readwrite' });
+            }
+          } catch (err) {
+            console.warn('Could not get write permission for', handle.name, err);
+          }
+
           const file = await handle.getFile();
           const id = uuidv4();
           const previewUrl = URL.createObjectURL(file);
@@ -128,10 +113,59 @@ export function ExifBulkEditor({ onBack }: ExifBulkEditorProps) {
 
       setItems((prev) => [...prev, ...newItems]);
     } catch (err) {
+      console.error('Error processing files:', err);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleFileSelection = async () => {
+    try {
+      // @ts-expect-error File System Access API
+      const handles = await window.showOpenFilePicker({
+        multiple: true,
+        types: [{
+          description: 'Images',
+          accept: { 'image/jpeg': ['.jpg', '.jpeg'] }
+        }]
+      });
+
+      await processFileHandles(handles);
+    } catch (err) {
       if (err instanceof Error && err.name !== 'AbortError') {
         console.error('File picker error:', err);
       }
-    } finally {
+    }
+  };
+
+  const handleFolderSelection = async () => {
+    try {
+      // @ts-expect-error File System Access API
+      const dirHandle = await window.showDirectoryPicker({
+        mode: 'readwrite'
+      });
+
+      // Request readwrite permission once for the whole folder
+      const permission = await dirHandle.queryPermission({ mode: 'readwrite' });
+      if (permission !== 'granted') {
+        const result = await dirHandle.requestPermission({ mode: 'readwrite' });
+        if (result !== 'granted') return;
+      }
+
+      setIsProcessing(true);
+      const handles: any[] = [];
+      
+      for await (const entry of dirHandle.values() as any) {
+        if (entry.kind === 'file' && (entry.name.toLowerCase().endsWith('.jpg') || entry.name.toLowerCase().endsWith('.jpeg'))) {
+          handles.push(entry);
+        }
+      }
+
+      await processFileHandles(handles);
+    } catch (err) {
+      if (err instanceof Error && err.name !== 'AbortError') {
+        console.error('Directory picker error:', err);
+      }
       setIsProcessing(false);
     }
   };
@@ -188,6 +222,10 @@ export function ExifBulkEditor({ onBack }: ExifBulkEditorProps) {
     );
   };
 
+  const clearSelection = () => {
+    setItems((prev) => prev.map((item) => ({ ...item, selected: false })));
+  };
+
   const removeSelected = () => {
     setItems((prev) => {
       const remaining = prev.filter((item) => !item.selected);
@@ -216,8 +254,19 @@ export function ExifBulkEditor({ onBack }: ExifBulkEditorProps) {
         valA = a.filename;
         valB = b.filename;
       } else if (sortBy === 'date') {
-        valA = a.exifDate || '';
-        valB = b.exifDate || '';
+        // Convert DDMMYY to YYYYMMDD for correct chronological sorting
+        const toSortableDate = (dateStr?: string, timeStr?: string) => {
+          if (!dateStr || !/^\d{6}$/.test(dateStr)) return '000000000000';
+          const day = dateStr.substring(0, 2);
+          const month = dateStr.substring(2, 4);
+          const yearYY = parseInt(dateStr.substring(4, 6));
+          const currentYY = new Date().getFullYear() % 100;
+          const year = (yearYY > currentYY ? 1900 : 2000) + yearYY;
+          const time = (timeStr || '00:00').replace(':', '');
+          return `${year}${month}${day}${time}`;
+        };
+        valA = toSortableDate(a.exifDate, a.exifTime);
+        valB = toSortableDate(b.exifDate, b.exifTime);
       } else if (sortBy === 'location') {
         valA = a.exifLocation || '';
         valB = b.exifLocation || '';
@@ -233,7 +282,42 @@ export function ExifBulkEditor({ onBack }: ExifBulkEditorProps) {
     return result;
   }, [items, filter, sortBy, sortOrder]);
 
+  const groupedItems = useMemo(() => {
+    const groups: ImageGroup[] = [];
+    
+    // Use the same sortable logic for consistent grouping order
+    const toSortKey = (dateStr?: string) => {
+      if (!dateStr || !/^\d{6}$/.test(dateStr)) return '00000000';
+      const day = dateStr.substring(0, 2);
+      const month = dateStr.substring(2, 4);
+      const yearYY = parseInt(dateStr.substring(4, 6));
+      const currentYY = new Date().getFullYear() % 100;
+      const year = (yearYY > currentYY ? 1900 : 2000) + yearYY;
+      return `${year}${month}${day}`;
+    };
+
+    filteredItems.forEach(item => {
+      const date = item.exifDate || 'No date';
+      let group = groups.find(g => g.date === date);
+      if (!group) {
+        group = { date, items: [] };
+        groups.push(group);
+      }
+      group.items.push(item);
+    });
+
+    // Ensure groups themselves are sorted chronologically
+    groups.sort((a, b) => {
+      const keyA = toSortKey(a.date === 'No date' ? undefined : a.date);
+      const keyB = toSortKey(b.date === 'No date' ? undefined : b.date);
+      return sortOrder === 'asc' ? keyA.localeCompare(keyB) : keyB.localeCompare(keyA);
+    });
+
+    return groups;
+  }, [filteredItems, sortOrder]);
+
   const selectedCount = items.filter((item) => item.selected).length;
+  const selectedItems = useMemo(() => items.filter(i => i.selected), [items]);
 
   const generateNewFilename = (originalName: string, dateStr: string) => {
     if (!/^\d{6}$/.test(dateStr)) return originalName;
@@ -265,29 +349,14 @@ export function ExifBulkEditor({ onBack }: ExifBulkEditorProps) {
 
     try {
       // Get selected items in the order they are displayed
-      const selectedItems = filteredItems.filter(item => item.selected);
+      const currentSelectedItems = filteredItems.filter(item => item.selected);
       const newItems = [...items];
       
-      // CRITICAL: Verify permissions for all handles first while we have user activation
-      // The File System Access API requires user activation for createWritable.
-      // By requesting permission for all files upfront, we minimize the risk of losing activation during long processing.
-      for (const item of selectedItems) {
-        if (item.handle) {
-          const permission = await item.handle.queryPermission({ mode: 'readwrite' });
-          if (permission !== 'granted') {
-            const request = await item.handle.requestPermission({ mode: 'readwrite' });
-            if (request !== 'granted') {
-              console.warn('Permission not granted for:', item.filename);
-            }
-          }
-        }
-      }
-
       // Base date/time for sequential incrementing
       let baseDateTime: { y: number, m: number, d: number, h: number, min: number, s: number } | null = null;
 
-      for (let i = 0; i < selectedItems.length; i++) {
-        const item = selectedItems[i];
+      for (let i = 0; i < currentSelectedItems.length; i++) {
+        const item = currentSelectedItems[i];
         const itemIdx = newItems.findIndex(ni => ni.id === item.id);
         if (itemIdx === -1) continue;
 
@@ -454,28 +523,17 @@ export function ExifBulkEditor({ onBack }: ExifBulkEditorProps) {
             continue; // Move to next item
           } catch (err) {
             console.error('CRITICAL: Error updating file on disk:', item.filename, err);
-            // Fallback to download if overwrite fails
+            alert(`Error updating ${item.filename}: ${err instanceof Error ? err.message : String(err)}`);
+            // Stop processing further items on critical error
+            setIsProcessing(false);
+            return;
           }
         }
         
-        // Fallback: Trigger download if no handle or update failed
-        const link = document.createElement('a');
-        link.href = finalDataUrl;
-        link.download = newFilename;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-
-        newItems[itemIdx] = {
-          ...item,
-          file: new File([blob], newFilename, { type: item.file.type }),
-          filename: newFilename,
-          exifDate: updatedDate,
-          exifTime: updatedTime,
-          exifLocation: finalCity || item.exifLocation,
-          exifDescription: finalCity || item.exifDescription,
-          selected: false,
-        };
+        // No handle available
+        alert(`Could not save ${item.filename} because the file handle is missing. Please re-import the file.`);
+        setIsProcessing(false);
+        return;
       }
 
       setItems(newItems);
@@ -564,15 +622,24 @@ export function ExifBulkEditor({ onBack }: ExifBulkEditorProps) {
                 </div>
                 <h2 className="text-2xl font-bold mb-2 text-center">Select images to edit Exif</h2>
                 <p className="text-neutral-500 mb-8 text-center max-w-md">
-                  Using the file picker allows the app to save changes directly to your original files.
+                  Using the file or folder picker allows the app to save changes directly to your original files.
                 </p>
-                <button 
-                  onClick={handleFileSelection}
-                  className="flex items-center gap-3 px-8 py-4 bg-blue-600 hover:bg-blue-500 rounded-2xl text-lg font-bold transition-all shadow-xl shadow-blue-900/30 transform active:scale-[0.98]"
-                >
-                  <Save size={24} />
-                  <span>Select Files to Edit</span>
-                </button>
+                <div className="flex items-center gap-4">
+                  <button 
+                    onClick={handleFileSelection}
+                    className="flex items-center gap-3 px-8 py-4 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 rounded-2xl text-lg font-bold transition-all transform active:scale-[0.98]"
+                  >
+                    <Save size={24} className="text-blue-500" />
+                    <span>Select Files</span>
+                  </button>
+                  <button 
+                    onClick={handleFolderSelection}
+                    className="flex items-center gap-3 px-8 py-4 bg-blue-600 hover:bg-blue-500 rounded-2xl text-lg font-bold transition-all shadow-xl shadow-blue-900/30 transform active:scale-[0.98]"
+                  >
+                    <FolderOpen size={24} />
+                    <span>Select Folder</span>
+                  </button>
+                </div>
                 <p className="mt-6 text-xs text-neutral-600 uppercase tracking-widest">
                   Only JPG files are supported
                 </p>
@@ -590,13 +657,22 @@ export function ExifBulkEditor({ onBack }: ExifBulkEditorProps) {
                     <span>Select All</span>
                   </button>
                   {selectedCount > 0 && (
-                    <button 
-                      onClick={removeSelected}
-                      className="flex items-center gap-2 px-3 py-2 bg-red-950/20 hover:bg-red-950/40 border border-red-900/30 text-red-400 rounded-lg text-sm transition-colors"
-                    >
-                      <Trash2 size={16} />
-                      <span>Remove Selected ({selectedCount})</span>
-                    </button>
+                    <>
+                      <button 
+                        onClick={clearSelection}
+                        className="flex items-center gap-2 px-3 py-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 rounded-lg text-sm transition-colors"
+                      >
+                        <X size={16} />
+                        <span>Clear Selection</span>
+                      </button>
+                      <button 
+                        onClick={removeSelected}
+                        className="flex items-center gap-2 px-3 py-2 bg-red-950/20 hover:bg-red-950/40 border border-red-900/30 text-red-400 rounded-lg text-sm transition-colors"
+                      >
+                        <Trash2 size={16} />
+                        <span>Remove Selected ({selectedCount})</span>
+                      </button>
+                    </>
                   )}
                 </div>
                 <div className="flex items-center gap-2">
@@ -605,277 +681,48 @@ export function ExifBulkEditor({ onBack }: ExifBulkEditorProps) {
                     className="flex items-center gap-2 px-4 py-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 rounded-lg text-sm font-bold transition-colors"
                   >
                     <Save size={16} className="text-blue-500" />
-                    <span>Add More Files</span>
+                    <span>Add Files</span>
+                  </button>
+                  <button 
+                    onClick={handleFolderSelection}
+                    className="flex items-center gap-2 px-4 py-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 rounded-lg text-sm font-bold transition-colors"
+                  >
+                    <FolderOpen size={16} className="text-blue-500" />
+                    <span>Add Folder</span>
                   </button>
                 </div>
               </div>
 
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'flex-start' }}>
-                {filteredItems.map((item) => (
-                  <div 
-                    key={item.id}
-                    onClick={() => toggleSelect(item.id)}
-                    style={{ width: '75px', display: 'flex', flexDirection: 'column', gap: '6px', cursor: 'pointer' }}
-                  >
-                    <div 
-                      style={{ 
-                        width: '75px', 
-                        height: '75px', 
-                        position: 'relative', 
-                        borderRadius: '6px', 
-                        overflow: 'hidden', 
-                        border: item.selected ? '2px solid #3b82f6' : '2px solid #262626',
-                        transition: 'all 0.2s ease'
-                      }}
-                    >
-                      <img 
-                          src={item.previewUrl} 
-                          alt={item.filename}
-                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                        />
-                      
-                      <div style={{ position: 'absolute', top: '4px', left: '4px', pointerEvents: 'none' }}>
-                        <div style={{ 
-                          padding: '2px', 
-                          borderRadius: '2px', 
-                          backgroundColor: item.selected ? '#3b82f6' : 'rgba(0,0,0,0.5)', 
-                          color: 'white',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center'
-                        }}>
-                          {item.selected ? <CheckSquare size={10} /> : <Square size={10} />}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '2px', overflow: 'hidden' }}>
-                      <p style={{ 
-                        fontSize: '9px', 
-                        fontWeight: '700', 
-                        margin: 0, 
-                        whiteSpace: 'nowrap', 
-                        overflow: 'hidden', 
-                        textOverflow: 'ellipsis',
-                        color: '#d4d4d4'
-                      }} title={item.filename}>
-                        {item.filename}
-                      </p>
-                      
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#737373', fontSize: '7px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', overflow: 'hidden' }}>
-                            <Calendar size={7} style={{ flexShrink: 0 }} />
-                            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {item.exifDate || 'No date'}
-                              {item.exifTime && <span style={{ marginLeft: '4px', color: '#525252' }}>{item.exifTime}</span>}
-                            </span>
-                          </div>
-                          {item.exifDate && (
-                            <button 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                selectSameDate(item.exifDate!);
-                              }}
-                              className="p-0.5 hover:bg-neutral-800 rounded text-blue-500 transition-colors"
-                              title="Select all from this date"
-                            >
-                              <CheckSquare size={7} />
-                            </button>
-                          )}
-                        </div>
-                        
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#737373', fontSize: '7px' }}>
-                          <MapPin size={7} style={{ flexShrink: 0 }} />
-                          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.exifLocation || 'No location'}</span>
-                        </div>
-
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#737373', fontSize: '7px' }}>
-                          <FileText size={7} style={{ flexShrink: 0 }} />
-                          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.exifDescription || 'No description'}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <ImageGrid 
+                groupedItems={groupedItems} 
+                onToggle={toggleSelect} 
+                onSelectSameDate={selectSameDate} 
+              />
             </>
           )}
         </main>
 
         {/* Sidebar for Bulk Edit */}
         {selectedCount > 0 && (
-          <aside className="w-80 border-l border-neutral-800 bg-neutral-900/50 flex flex-col animate-in slide-in-from-right duration-300">
-            <div className="p-6 border-b border-neutral-800">
-              <h2 className="text-lg font-bold mb-1">Bulk Edit</h2>
-              <p className="text-sm text-neutral-500">{selectedCount} images selected</p>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
-              {/* Date Input */}
-              <div className="flex flex-col gap-2">
-                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest">Set New Date (DDMMYY)</label>
-                <div className="relative group/date">
-                  <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-600 group-focus-within/date:text-blue-500 transition-colors pointer-events-none" size={16} />
-                  <input 
-                    type="text"
-                    placeholder="e.g. 150885"
-                    value={bulkDate}
-                    onChange={(e) => setBulkDate(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    style={{ paddingLeft: '3rem' }}
-                    className="w-full bg-neutral-950 border border-neutral-800 rounded-lg pr-4 py-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 transition-all"
-                  />
-                </div>
-              </div>
-
-              {/* Location Input */}
-              <div className="flex flex-col gap-2 relative">
-                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest">Set New Location</label>
-                <div className="relative group/loc">
-                  <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-600 group-focus-within/loc:text-blue-500 transition-colors pointer-events-none" size={16} />
-                  <input 
-                    type="text"
-                    placeholder="Search saved or enter city..."
-                    value={locationSearch || bulkCity}
-                    onChange={(e) => {
-                      setLocationSearch(e.target.value);
-                      setBulkCity(e.target.value);
-                      setShowLocationDropdown(true);
-                    }}
-                    onFocus={() => setShowLocationDropdown(true)}
-                    style={{ paddingLeft: '3rem' }}
-                    className="w-full bg-neutral-950 border border-neutral-800 rounded-lg pr-10 py-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 transition-all"
-                  />
-                  {(locationSearch || bulkCity) && (
-                    <button 
-                      onClick={() => {
-                        setLocationSearch('');
-                        setBulkCity('');
-                        setBulkLocation(null);
-                      }}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-600 hover:text-neutral-400"
-                    >
-                      <X size={14} />
-                    </button>
-                  )}
-                </div>
-
-                {showLocationDropdown && (
-                  <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-neutral-900 border border-neutral-800 rounded-lg shadow-2xl max-h-60 overflow-y-auto">
-                    {filteredLocations.map(loc => (
-                      <button
-                        key={loc.id}
-                        onClick={() => {
-                          setBulkLocation(loc);
-                          setBulkCity(loc.city);
-                          setLocationSearch(loc.city);
-                          setShowLocationDropdown(false);
-                        }}
-                        className="w-full text-left px-4 py-3 hover:bg-neutral-800 transition-colors border-b border-neutral-800 last:border-0"
-                      >
-                        <div className="flex items-center gap-2">
-                          <MapPin size={14} className="text-blue-500 shrink-0" />
-                          <span className="text-sm text-neutral-200 font-medium truncate">{loc.street || loc.city}</span>
-                        </div>
-                        {(loc.street || loc.subarea) && (
-                          <div className="pl-6 text-[10px] text-neutral-500 uppercase truncate">
-                            {loc.street ? loc.city : loc.subarea}
-                          </div>
-                        )}
-                      </button>
-                    ))}
-                    {locationSearch && filteredLocations.length === 0 && (
-                      <div className="p-4 text-center text-xs text-neutral-600 italic">
-                        No saved matches. Press Enter to use manual city.
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {bulkLocation && (
-                <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] font-bold text-blue-500 uppercase tracking-wider">Selected Location</span>
-                    <button onClick={() => setBulkLocation(null)} className="text-blue-500 hover:text-blue-400">
-                      <X size={12} />
-                    </button>
-                  </div>
-                  <div className="text-sm font-medium">{bulkLocation.city}</div>
-                  <div className="text-[10px] text-neutral-500">{bulkLocation.lat.toFixed(4)}, {bulkLocation.lon.toFixed(4)}</div>
-                </div>
-              )}
-            </div>
-
-              {/* Selected Items Reordering */}
-              <div className="flex flex-col gap-2">
-                <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest">Order of Selection</label>
-                <div className="bg-neutral-950 border border-neutral-800 rounded-lg overflow-hidden max-h-48 overflow-y-auto">
-                  {items.filter(i => i.selected).map((item, idx, arr) => (
-                    <div key={item.id} className="flex items-center gap-2 p-2 border-b border-neutral-800 last:border-0 hover:bg-neutral-900 transition-colors group">
-                      <img src={item.previewUrl} className="w-8 h-8 rounded object-cover" alt="" />
-                      <span className="text-[10px] text-neutral-300 truncate flex-1">{item.filename}</span>
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button 
-                          onClick={() => moveItem(item.id, 'up')}
-                          disabled={idx === 0}
-                          className="p-1 hover:bg-neutral-800 rounded disabled:opacity-30 disabled:hover:bg-transparent"
-                        >
-                          <ChevronUp size={12} />
-                        </button>
-                        <button 
-                          onClick={() => moveItem(item.id, 'down')}
-                          disabled={idx === arr.length - 1}
-                          className="p-1 hover:bg-neutral-800 rounded disabled:opacity-30 disabled:hover:bg-transparent"
-                        >
-                          <ChevronDown size={12} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Preserve Order Toggle */}
-              <div className="flex items-center gap-3 p-3 bg-neutral-950 border border-neutral-800 rounded-lg">
-                <button 
-                  onClick={() => setPreserveOrder(!preserveOrder)}
-                  className={`p-1 rounded transition-colors ${preserveOrder ? 'bg-blue-600 text-white' : 'bg-neutral-800 text-neutral-500'}`}
-                >
-                  {preserveOrder ? <CheckSquare size={16} /> : <Square size={16} />}
-                </button>
-                <div className="flex flex-col">
-                  <span className="text-xs font-bold text-neutral-200">Preserve Order</span>
-                  <span className="text-[10px] text-neutral-500 uppercase tracking-widest">Add 1 min per photo from oldest</span>
-                </div>
-              </div>
-
-              <div className="p-6 border-t border-neutral-800 bg-neutral-900/80 backdrop-blur-md">
-                <button 
-                  onClick={handleBulkUpdate}
-                  disabled={isProcessing || (!bulkDate && !bulkCity && !bulkLocation && !preserveOrder)}
-                  className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-800 disabled:text-neutral-500 py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all transform active:scale-[0.98]"
-                >
-                  {isProcessing ? (
-                    <>
-                      <Loader2 size={20} className="animate-spin" />
-                      <span>Processing...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Save size={20} />
-                      <span>Save Changes to Files</span>
-                    </>
-                  )}
-                </button>
-                <div className="mt-3 flex items-start gap-2 px-1">
-                  <CheckCircle2 size={12} className="text-blue-500 mt-0.5 shrink-0" />
-                  <p className="text-[10px] text-neutral-500 uppercase tracking-widest leading-relaxed">
-                    Changes will be saved directly to the original files
-                  </p>
-                </div>
-              </div>
-          </aside>
+          <BulkEditSidebar 
+            selectedItems={selectedItems}
+            isProcessing={isProcessing}
+            bulkDate={bulkDate}
+            setBulkDate={setBulkDate}
+            bulkCity={bulkCity}
+            setBulkCity={setBulkCity}
+            bulkLocation={bulkLocation}
+            setBulkLocation={setBulkLocation}
+            locationSearch={locationSearch}
+            setLocationSearch={setLocationSearch}
+            showLocationDropdown={showLocationDropdown}
+            setShowLocationDropdown={setShowLocationDropdown}
+            filteredLocations={filteredLocations}
+            preserveOrder={preserveOrder}
+            setPreserveOrder={setPreserveOrder}
+            onMoveItem={moveItem}
+            onBulkUpdate={handleBulkUpdate}
+          />
         )}
       </div>
 
