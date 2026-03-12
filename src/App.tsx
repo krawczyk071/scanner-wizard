@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react'
 import { ImageDropzone } from './components/ImageDropzone'
 import { Workspace } from './components/Workspace'
+import { ExifBulkEditor } from './components/ExifBulkEditor'
 import { type LoadedImage, loadImageFile } from './utils/imageLoader'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Edit3 } from 'lucide-react'
+
+type AppView = 'main' | 'exif-bulk-editor'
 
 function App() {
   const [cvReady, setCvReady] = useState(false)
+  const [view, setView] = useState<AppView>('main')
   const [image, setImage] = useState<LoadedImage | null>(null)
   const [queue, setQueue] = useState<File[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -71,6 +75,10 @@ function App() {
     )
   }
 
+  if (view === 'exif-bulk-editor') {
+    return <ExifBulkEditor onBack={() => setView('main')} />
+  }
+
   return (
     <div className="flex flex-col w-full h-screen bg-neutral-950 text-white overflow-hidden">
       {!image && (
@@ -92,6 +100,17 @@ function App() {
               {error}
             </div>
           )}
+
+          <div className="mt-12 flex flex-col items-center">
+            <button
+              onClick={() => setView('exif-bulk-editor')}
+              className="flex items-center gap-2 px-6 py-3 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 rounded-full text-neutral-300 transition-colors cursor-pointer group"
+            >
+              <Edit3 className="w-5 h-5 text-neutral-500 group-hover:text-blue-400" />
+              <span>Exif Bulk Editor</span>
+            </button>
+            <p className="mt-2 text-xs text-neutral-600">Edit metadata for multiple images at once</p>
+          </div>
         </div>
       )}
       

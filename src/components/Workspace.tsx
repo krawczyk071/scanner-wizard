@@ -14,7 +14,6 @@ import { QueuePanel } from './QueuePanel';
 import { PreviewsPanel } from './PreviewsPanel';
 import { SniperScope } from './SniperScope';
 import type Konva from 'konva';
-import { getSettings } from '../utils/settingsStorage';
 
 interface WorkspaceProps {
   image: LoadedImage;
@@ -331,6 +330,11 @@ export function Workspace({ image, queue, onNext }: WorkspaceProps) {
         await handleExport(r);
         await new Promise(res => setTimeout(res, 500));
       }
+      
+      // Clear all selections after successful export of all photos
+      setRects([]);
+      setSelectedId(null);
+
       if (queue.length > 0) {
         setTimeout(() => {
           onNext();
